@@ -2919,7 +2919,9 @@ function clearAll(){
 function toggleSection(header){
   const body=header.nextElementSibling;
   const collapsed=header.classList.toggle('collapsed');
-  body.style.maxHeight=collapsed?'0':''; body.style.overflow=collapsed?'hidden':'';
+  // Use display:none for reliable collapse regardless of content height
+  body.style.display = collapsed ? 'none' : '';
+  body.style.overflow = collapsed ? 'hidden' : '';
 }
 
 function toast(msg,type='info'){
@@ -5183,13 +5185,49 @@ function showFeaturePopup(map, latlng, feat, color) {
 
   const INITIAL = 8;
 
+  // Copy all visible attributes to clipboard as key: value pairs
+  window._gaiaCopyPopupAll = function(showAll) {
+    const visKeys = showAll ? keys : keys.slice(0, INITIAL);
+    const text = visKeys.map(k => {
+      const v = props[k] === null || props[k] === undefined ? '' : String(props[k]);
+      return k + ': ' + v;
+    }).join('
+');
+    navigator.clipboard.writeText(text).then(() => {
+      toast('Copied ' + visKeys.length + ' fields to clipboard', 'success');
+    }).catch(() => {
+      const ta = document.createElement('textarea');
+      ta.value = text; ta.style.position = 'fixed'; ta.style.opacity = '0';
+      document.body.appendChild(ta); ta.select();
+      document.execCommand('copy'); document.body.removeChild(ta);
+      toast('Copied to clipboard', 'success');
+    });
+  };
+
+  // Copy a single field value
+  window._gaiaCopyPopupField = function(k, v) {
+    navigator.clipboard.writeText(v).then(() => {
+      toast('Copied: ' + (v.length > 30 ? v.slice(0,30) + '…' : v), 'success');
+    }).catch(() => {
+      const ta = document.createElement('textarea');
+      ta.value = v; ta.style.position = 'fixed'; ta.style.opacity = '0';
+      document.body.appendChild(ta); ta.select();
+      document.execCommand('copy'); document.body.removeChild(ta);
+      toast('Copied to clipboard', 'success');
+    });
+  };
+
   function buildPopupHtml(showAll) {
     const visKeys = showAll ? keys : keys.slice(0, INITIAL);
     const rows = visKeys.map(k => {
       const v = props[k] === null || props[k] === undefined ? '' : String(props[k]);
       const disp = v.length > 40 ? v.slice(0,40) + '…' : v;
-      return `<tr><td style="font-weight:600;color:#2c3e50;white-space:nowrap;padding:2px 8px 2px 0;">${k}</td>`
-           + `<td style="color:#3a5068;max-width:200px;overflow:hidden;text-overflow:ellipsis;white-space:nowrap;">${disp}</td></tr>`;
+      const vEsc = v.replace(/\\/g,'\\\\').replace(/'/g,"\\'");
+      const kEsc = k.replace(/\\/g,'\\\\').replace(/'/g,"\\'");
+      return `<tr title="Right-click to copy value" oncontextmenu="event.preventDefault();event.stopPropagation();window._gaiaCopyPopupField('${kEsc}','${vEsc}');return false;">
+        <td style="font-weight:600;color:#2c3e50;white-space:nowrap;padding:2px 8px 2px 0;">${k}</td>
+        <td style="color:#3a5068;max-width:200px;overflow:hidden;text-overflow:ellipsis;white-space:nowrap;cursor:default;">${disp}</td>
+      </tr>`;
     }).join('');
     const moreRow = !showAll && keys.length > INITIAL
       ? `<tr><td colspan="2" style="padding-top:4px;">
@@ -5197,9 +5235,14 @@ function showFeaturePopup(map, latlng, feat, color) {
              ▼ Expand to show ${keys.length - INITIAL} more field${keys.length - INITIAL !== 1 ? 's' : ''}
            </span></td></tr>`
       : '';
-    return `<div style="font-family:'IBM Plex Mono',monospace;font-size:11px;min-width:160px;max-width:280px;">
+    const copyAllBtn = `<div style="padding-top:6px;border-top:1px solid rgba(0,0,0,0.1);margin-top:4px;display:flex;justify-content:space-between;align-items:center;">
+      <span style="font-family:monospace;font-size:9px;color:#9aacba;">Right-click row to copy value</span>
+      <span onclick="event.stopPropagation();window._gaiaCopyPopupAll(${showAll})" style="cursor:pointer;color:#0074a8;font-family:monospace;font-size:10px;text-decoration:underline;">⎘ Copy all</span>
+    </div>`;
+    return `<div style="font-family:'IBM Plex Mono',monospace;font-size:11px;min-width:180px;max-width:300px;">
       <div style="background:${color};height:3px;border-radius:2px 2px 0 0;margin:-8px -8px 7px -8px;"></div>
       <table style="border-collapse:collapse;width:100%;">${rows}${moreRow}</table>
+      ${copyAllBtn}
     </div>`;
   }
 
@@ -5210,11 +5253,11 @@ function showFeaturePopup(map, latlng, feat, color) {
   };
 
   state._featurePopup = L.popup({
-      maxWidth: 320,
+      maxWidth: 340,
       className: 'gaia-feature-popup',
       closeButton: true,
-      autoClose: false,   // don't close when map is panned/moved
-      keepInView: false,  // don't pan map to keep popup visible (avoids shift→close loop)
+      autoClose: false,
+      keepInView: false,
     })
     .setLatLng(latlng)
     .setContent(buildPopupHtml(false))
