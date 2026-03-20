@@ -801,6 +801,19 @@ select option { background: var(--bg2); }
 <!-- BOTTOM BAR -->
 <div id="bottom-bar">
   <div id="coord-display">Hover map to see coordinates</div>
+  <!-- Scale display + zoom input -->
+  <div style="display:flex;align-items:center;gap:4px;border-left:1px solid var(--border);padding-left:8px;margin-left:4px;flex-shrink:0;">
+    <span style="font-family:var(--mono);font-size:10px;color:var(--text3);">1:</span>
+    <span id="scale-display" style="font-family:var(--mono);font-size:10px;color:var(--text2);min-width:60px;" title="Approximate map scale">–</span>
+    <span style="font-family:var(--mono);font-size:9px;color:var(--text3);margin-left:4px;">Z</span>
+    <input id="zoom-input" type="number" min="0" max="22" step="1"
+      style="width:38px;font-family:var(--mono);font-size:10px;padding:1px 4px;
+             border:1px solid var(--border);border-radius:3px;background:var(--bg3);
+             color:var(--text);text-align:center;"
+      title="Zoom level — type to jump"
+      onchange="setMapZoom(parseInt(this.value))"
+      onkeydown="if(event.key==='Enter'){setMapZoom(parseInt(this.value));this.blur();}"/>
+  </div>
   <button class="btn btn-ghost btn-sm" onclick="toggleCRSModal()" title="Coordinate System">⊕ CRS</button>
   <button class="btn btn-ghost btn-sm" onclick="document.getElementById('about-backdrop').classList.add('open')" title="About Gaia" style="margin-left:4px;">ℹ About</button>
 </div>
@@ -1530,6 +1543,29 @@ window.addEventListener('DOMContentLoaded', () => {
     document.getElementById('coord-display').textContent = 'Hover map to see coordinates';
   });
 
+  // Scale / zoom display — updates on every zoom or pan
+  function updateScaleDisplay() {
+    const zoom = state.map.getZoom();
+    const zoomEl = document.getElementById('zoom-input');
+    const scaleEl = document.getElementById('scale-display');
+    if (zoomEl && document.activeElement !== zoomEl) zoomEl.value = Math.round(zoom);
+    if (scaleEl) {
+      // Approximate scale denominator for Web Mercator at current centre latitude
+      const lat = state.map.getCenter().lat;
+      const metersPerPx = 156543.03392 * Math.cos(lat * Math.PI / 180) / Math.pow(2, zoom);
+      const scaleDenom = Math.round(metersPerPx * 96 / 0.0254); // 96 dpi screen
+      if (scaleDenom >= 1000000) {
+        scaleEl.textContent = (scaleDenom / 1000000).toFixed(1) + 'M';
+      } else if (scaleDenom >= 1000) {
+        scaleEl.textContent = Math.round(scaleDenom / 1000) + 'k';
+      } else {
+        scaleEl.textContent = scaleDenom.toString();
+      }
+    }
+  }
+  state.map.on('zoomend moveend', updateScaleDisplay);
+  setTimeout(updateScaleDisplay, 100); // initial value after map tiles settle
+
   // Right-click context menu
   state.map.on('contextmenu', function(e) {
     e.originalEvent.preventDefault();
@@ -1935,7 +1971,7 @@ function addLayer(geojson, name, sourceCRS, format) {
     if(f.properties) Object.keys(f.properties).forEach(k=>{ if(!fields[k]) fields[k]=inferType(f.properties[k]); });
   });
   const normalStyle  = { color, fillColor:color, fillOpacity:0.25, weight:isLine?2.5:1.5, opacity:0.9 };
-  const selectedStyle = { color:'#ffffff', fillColor:color, fillOpacity:0.55, weight:2.5, opacity:1 };
+  const selectedStyle = { color:'#00ffff', fillColor:color, fillOpacity: 0.25, weight:3, opacity:1 };
   const hoverStyle   = { fillOpacity:0.4, weight:2.5 };
 
   const leafletLayer = L.geoJSON(geojson, {
@@ -2015,7 +2051,7 @@ function refreshMapSelection(layerIdx) {
   const geomTypes = new Set((layer.geojson.features||[]).map(f=>f.geometry?.type).filter(Boolean));
   const isLine = [...geomTypes].some(t=>t.includes('Line'));
   const normal   = { color, fillColor, fillOpacity: noFill ? 0 : 0.25, weight:isLine?2.5:1.5, opacity:0.9 };
-  const selected = { color:'#ffffff', fillColor, fillOpacity: noFill ? 0 : 0.55, weight:2.5, opacity:1 };
+  const selected = { color:'#00ffff', fillColor, fillOpacity: noFill ? 0 : 0.25, weight:3, opacity:1 };
   let fi = 0;
   layer.leafletLayer.eachLayer(function(sublayer) {
     const isSelected = state.selectedFeatureIndices.has(fi);
@@ -2026,7 +2062,7 @@ function refreshMapSelection(layerIdx) {
       // Point markers (DivIcon) — swap icon for selected state
       if (sublayer.setIcon) {
         const s = isSelected ? 18 : 14;
-        const outline = isSelected ? '#fff' : (layer.outlineColor || layer.color);
+        const outline = isSelected ? '#00ffff' : (layer.outlineColor || layer.color);
         sublayer.setIcon(_makePointIcon(fillColor, outline, noFill, layer.pointShape || 'circle', s));
       }
     }
@@ -2602,6 +2638,14 @@ function coordsToWKTGeom(geom){
 
 // ── UTILITIES ──
 function escHtml(str){return String(str).replace(/&/g,'&amp;').replace(/</g,'&lt;').replace(/>/g,'&gt;').replace(/"/g,'&quot;');}
+
+function setMapZoom(z) {
+  if (!state.map || isNaN(z)) return;
+  z = Math.max(0, Math.min(22, z));
+  state.map.setZoom(z);
+  const zi = document.getElementById('zoom-input');
+  if (zi) zi.value = z;
+}
 
 function fitAll(){
   const ls=state.layers.filter(l=>l.visible); if(!ls.length) return;
@@ -4894,7 +4938,7 @@ function showFeaturePopup(map, latlng, feat, color) {
     }).join('');
     const moreRow = !showAll && keys.length > INITIAL
       ? `<tr><td colspan="2" style="padding-top:4px;">
-           <span onclick="window._gaiaExpandPopup()" style="cursor:pointer;color:#0074a8;font-family:monospace;font-size:10px;text-decoration:underline;">
+           <span onclick="event.stopPropagation();window._gaiaExpandPopup()" style="cursor:pointer;color:#0074a8;font-family:monospace;font-size:10px;text-decoration:underline;">
              ▼ Expand to show ${keys.length - INITIAL} more field${keys.length - INITIAL !== 1 ? 's' : ''}
            </span></td></tr>`
       : '';
@@ -4910,7 +4954,13 @@ function showFeaturePopup(map, latlng, feat, color) {
     }
   };
 
-  state._featurePopup = L.popup({ maxWidth: 320, className: 'gaia-feature-popup', closeButton: true, autoClose: true })
+  state._featurePopup = L.popup({
+      maxWidth: 320,
+      className: 'gaia-feature-popup',
+      closeButton: true,
+      autoClose: false,   // don't close when map is panned/moved
+      keepInView: false,  // don't pan map to keep popup visible (avoids shift→close loop)
+    })
     .setLatLng(latlng)
     .setContent(buildPopupHtml(false))
     .openOn(map);
@@ -5691,6 +5741,27 @@ function filterCatalogue() {
 
 async function addLayerFromCatalogue(url, name) {
   if (!url) return;
+
+  // Warn if zoomed too far out (risk of incomplete feature load)
+  if (state.map) {
+    const zoom = state.map.getZoom();
+    const WARN_ZOOM = 10; // below this, warn user
+    if (zoom < WARN_ZOOM) {
+      const proceed = confirm(
+        `You are zoomed out to zoom level ${zoom}.
+
+` +
+        `Catalogue layers load only features within the current map extent. ` +
+        `At this zoom level the extent is very large and only the first 100,000 features will be returned — ` +
+        `you may not see all data.
+
+` +
+        `Zoom in closer for better results, or click OK to load anyway.`
+      );
+      if (!proceed) return;
+    }
+  }
+
   openURLModal(); // close the modal first so user sees progress
   setURLStatus('Loading from catalogue…', 'loading');
 
