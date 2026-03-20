@@ -1,0 +1,26 @@
+Group,Name,URL
+New South Wales,NSW Cadastre (Lot/Plan),https://maps.six.nsw.gov.au/arcgis/rest/services/public/NSW_Cadastre/Mapserver/9
+New South Wales,NSW Road Network,https://portal.data.nsw.gov.au/arcgis/rest/services/RoadSegment/MapServer/0
+New South Wales,NSW Named Watercourse,https://maps.six.nsw.gov.au/arcgis/rest/services/public/NSW_Hydrography/MapServer/5
+New South Wales,NSW Water Bodies,https://portal.spatial.nsw.gov.au/server/rest/services/NSW_Hydrology_Theme/FeatureServer/0
+New South Wales,NSW Local Government Areas,https://maps.six.nsw.gov.au/arcgis/rest/services/public/NSW_Administrative_Boundaries/MapServer/1
+New South Wales,NSW Suburbs,https://maps.six.nsw.gov.au/arcgis/rest/services/public/NSW_Administrative_Boundaries/MapServer/0
+New South Wales,NSW State Forests,https://maps.six.nsw.gov.au/arcgis/rest/services/public/NSW_Administrative_Boundaries/MapServer/5
+New South Wales,NSW National Parks,https://maps.six.nsw.gov.au/arcgis/rest/services/public/NSW_Administrative_Boundaries/MapServer/6
+Queensland,QLD Cadastre,https://spatial-gis.information.qld.gov.au/arcgis/rest/services/PlanningCadastre/LandParcelPropertyFramework/MapServer/4
+Queensland,QLD Local Government Areas,https://spatial-gis.information.qld.gov.au/arcgis/rest/services/PlanningCadastre/LandParcelPropertyFramework/MapServer/20
+Queensland,QLD Roads,https://spatial-gis.information.qld.gov.au/arcgis/rest/services/Transportation/RoadsAndTracks/MapServer/10
+Queensland,QLD Waterways,https://spatial-gis.information.qld.gov.au/arcgis/rest/services/InlandWaters/WaterCoursesAndBodies/MapServer/33
+Victoria,VIC Cadastre (Parcels),https://services6.arcgis.com/GB33F62SbDxJjwEL/arcgis/rest/services/Vicmap_PARCEL/FeatureServer/0
+Victoria,VIC Roads,https://services6.arcgis.com/GB33F62SbDxJjwEL/arcgis/rest/services/Vicmap_TRANSPORT/FeatureServer/0
+Victoria,VIC Local Government Areas,https://services6.arcgis.com/GB33F62SbDxJjwEL/arcgis/rest/services/Vicmap_ADMIN/FeatureServer/2
+Western Australia,WA Cadastre,https://services.arcgis.com/P3ePLMYs2RVChkJx/arcgis/rest/services/Cadastral_Parcels_WA/FeatureServer/0
+Western Australia,WA Local Government Areas,https://services.arcgis.com/P3ePLMYs2RVChkJx/arcgis/rest/services/LGA_WA/FeatureServer/0
+South Australia,SA Cadastre,https://www.connectingbusiness.sa.gov.au/server/rest/services/LandCadastre/FeatureServer/0
+South Australia,SA Local Government Areas,https://www.connectingbusiness.sa.gov.au/server/rest/services/LocalGovernmentAreas/FeatureServer/0
+Australia National,Towns,https://spatial.infrastructure.gov.au/server/rest/services/Hosted/aus_ucl_town_point/FeatureServer/0
+Australia National,Suburbs & Localities,https://services1.arcgis.com/v8Kimc579yljmjSP/ArcGIS/rest/services/ABS2021_Census_G17A_Beta/FeatureServer/10
+Australia National,States and Territories,https://services1.arcgis.com/v8Kimc579yljmjSP/ArcGIS/rest/services/ABS2021_Census_G17A_Beta/FeatureServer/0
+Australia National,Local Government Areas,https://services1.arcgis.com/v8Kimc579yljmjSP/ArcGIS/rest/services/ABS2021_Census_G17A_Beta/FeatureServer/8
+Basemaps,NSW Aerial Imagery (XYZ),https://maps.six.nsw.gov.au/arcgis/rest/services/sixmaps/LPI_Imagery_Best/MapServer/tile/{z}/{y}/{x}
+Basemaps,QLD Aerial Imagery (XYZ),https://gisservices.information.qld.gov.au/arcgis/rest/services/Imagery/QldBase_AllUsers/ImageServer/tile/{z}/{y}/{x}
