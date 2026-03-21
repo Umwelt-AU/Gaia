@@ -38,20 +38,30 @@ const agol = {
 };
 
 // ─────────────────────────────────────────────────────────────────────────
-//  CORE HELPER — all AGOL REST calls go through here (POST form-encoded)
+//  CORE HELPERS
 // ─────────────────────────────────────────────────────────────────────────
+
+// REST API base — always www.arcgis.com regardless of org portal URL.
+// AGOL org tokens work on www.arcgis.com, and www.arcgis.com has correct
+// CORS headers for cross-origin POST from any origin.
+// The org portal URL (umweltau.maps.arcgis.com) is only used for the OAuth
+// authorize redirect — not for REST API calls.
+function _agolApiBase() {
+  // If the user has configured a non-arcgis.com portal (ArcGIS Enterprise),
+  // use that. Otherwise always use www.arcgis.com for ArcGIS Online.
+  const p = AGOL_CONFIG.portalUrl.replace(/\/+$/, '');
+  if (p.includes('arcgis.com')) return 'https://www.arcgis.com';
+  return p;  // Enterprise portal — use as-is
+}
+
 async function _agolPost(path, params = {}) {
-  const portal = AGOL_CONFIG.portalUrl.replace(/\/+$/, '');
-  const url = portal + path;
-
+  const url  = _agolApiBase() + path;
   const body = new URLSearchParams({ f: 'json', token: agol.token, ...params });
-
   const resp = await fetch(url, {
     method:  'POST',
     headers: { 'Content-Type': 'application/x-www-form-urlencoded' },
     body:    body.toString(),
   });
-
   if (!resp.ok) throw new Error('HTTP ' + resp.status + ' ' + resp.statusText);
   const data = await resp.json();
   if (data.error) {
@@ -174,18 +184,16 @@ function _agolOpenModalOnReturn() {
  */
 async function _agolFetchSelf() {
   if (!agol.token) return;
-  const portal = AGOL_CONFIG.portalUrl.replace(/\/+$/, '');
+  const api = _agolApiBase();
   try {
-    const selfUrl = portal + '/sharing/rest/community/self?f=json&token=' + encodeURIComponent(agol.token);
+    const selfUrl = api + '/sharing/rest/community/self?f=json&token=' + encodeURIComponent(agol.token);
     const resp = await fetch(selfUrl);
     if (!resp.ok) throw new Error('HTTP ' + resp.status);
     const data = await resp.json();
     if (data.error) throw new Error(data.error.message || JSON.stringify(data.error));
-    // Always update from the API response — it's the most accurate
     agol.username = data.username;
     agol.orgId    = data.orgId;
     agol.fullName = data.fullName || data.username;
-    // Save enriched username back to sessionStorage
     try {
       const stored = sessionStorage.getItem('gaia_agol_token');
       if (stored) {
@@ -196,14 +204,13 @@ async function _agolFetchSelf() {
     } catch(e) {}
     if (data.orgId) {
       try {
-        const orgUrl = portal + '/sharing/rest/portals/' + data.orgId + '?f=json&token=' + encodeURIComponent(agol.token);
+        const orgUrl = api + '/sharing/rest/portals/' + data.orgId + '?f=json&token=' + encodeURIComponent(agol.token);
         const orgResp = await fetch(orgUrl);
         const orgData = await orgResp.json();
         agol.orgName = orgData.name || '';
-      } catch(e) { /* org name is cosmetic */ }
+      } catch(e) {}
     }
   } catch(e) {
-    // Self-fetch failed — not fatal. Username may already be set from OAuth hash.
     console.warn('AGOL /community/self:', e.message);
   }
 }
@@ -413,8 +420,7 @@ async function agolSetGroup(groupId) {
 
 async function _agolLoadGroups() {
   try {
-    const portal = AGOL_CONFIG.portalUrl.replace(/\/+$/, '');
-    const selfUrl = portal + '/sharing/rest/community/self?f=json&token=' + encodeURIComponent(agol.token);
+    const selfUrl = _agolApiBase() + '/sharing/rest/community/self?f=json&token=' + encodeURIComponent(agol.token);
     const resp = await fetch(selfUrl);
     const data = await resp.json();
     if (data.error) throw new Error(data.error.message);

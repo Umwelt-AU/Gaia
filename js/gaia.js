@@ -3952,77 +3952,75 @@ function exportMapPNG() {
   const W = Math.round(rect.width), H = Math.round(rect.height);
   const isDark = document.body.classList.contains('dark-mode');
 
-  // ── Title bar height at top ──────────────────────────────────────────────
-  const TITLE_H = 36;
-  const FULL_H  = H + TITLE_H;
+  // ── Layout constants ───────────────────────────────────────────────────────
+  const TITLE_H  = 36;   // header bar height
+  const FOOTER_H = 28;   // footer bar height
+  const FULL_H   = H + TITLE_H + FOOTER_H;
+  const MAP_Y    = TITLE_H;   // where the map area starts (y)
 
   const out = document.createElement('canvas');
   out.width = W; out.height = FULL_H;
   const ctx = out.getContext('2d', { willReadFrequently: true });
 
+  // ── Date strings (used in title + footer) ────────────────────────────────
+  const now  = new Date();
+  const dd   = String(now.getDate()).padStart(2, '0');
+  const mm   = String(now.getMonth() + 1).padStart(2, '0');
+  const yyyy = now.getFullYear();
+
   // ── Title bar ─────────────────────────────────────────────────────────────
-  // Dark navy gradient matching Umwelt header
   const grad = ctx.createLinearGradient(0, 0, W, 0);
   grad.addColorStop(0, '#0C2E44');
   grad.addColorStop(1, '#113c64');
   ctx.fillStyle = grad;
   ctx.fillRect(0, 0, W, TITLE_H);
-  // Accent line at bottom of title bar
   ctx.fillStyle = '#14b1e7';
   ctx.fillRect(0, TITLE_H - 2, W, 2);
 
-  // Logo (left side of title bar) — load async, drawn in finalise step
-  // Title text (centre)
-  const now = new Date();
-  const dd   = String(now.getDate()).padStart(2, '0');
-  const mm   = String(now.getMonth() + 1).padStart(2, '0');
-  const yyyy = now.getFullYear();
-  const titleText = `Gaia Export — ${dd}-${mm}-${yyyy}`;
+  const titleText = 'Gaia Export \u2014 ' + dd + '-' + mm + '-' + yyyy;
   ctx.fillStyle = '#e8f4fb';
   ctx.font = 'bold 13px "IBM Plex Mono", monospace';
-  const textW = ctx.measureText(titleText).width;
-  ctx.fillText(titleText, Math.round(W / 2 - textW / 2), 23);
+  const tw = ctx.measureText(titleText).width;
+  ctx.fillText(titleText, Math.round(W / 2 - tw / 2), 23);
 
-  // Offset for map content — everything below the title bar
-  const OY = TITLE_H;  // y-offset for map content
-
-  // ── Background for map area ───────────────────────────────────────────────
+  // ── Map background ────────────────────────────────────────────────────────
   ctx.fillStyle = isDark ? '#111920' : '#f0f2f4';
-  ctx.fillRect(0, OY, W, H);
+  ctx.fillRect(0, MAP_Y, W, H);
 
-  // ── Basemap tiles: use a SEPARATE canvas to detect taint ──────────────────
-  // NEVER draw cross-origin images onto the output canvas.
-  // Test them on a throwaway canvas first.
+  // ── CLIP to map area so nothing bleeds into title/footer ─────────────────
+  ctx.save();
+  ctx.beginPath();
+  ctx.rect(0, MAP_Y, W, H);
+  ctx.clip();
+
+  // ── Basemap tiles ─────────────────────────────────────────────────────────
   const testCanvas = document.createElement('canvas');
   testCanvas.width = 1; testCanvas.height = 1;
   const testCtx = testCanvas.getContext('2d');
-
   const allImgs = Array.from(mapEl.querySelectorAll('.leaflet-map-pane img'));
-  const safeImgs = [];   // images confirmed same-origin or CORS-enabled
-  let   tainted  = false;
+  const safeImgs = [];
+  let tainted = false;
 
   allImgs.forEach(function(img) {
     if (!img.complete || !img.naturalWidth) return;
     try {
       testCtx.drawImage(img, 0, 0, 1, 1);
-      testCtx.getImageData(0, 0, 1, 1);  // throws if tainted
+      testCtx.getImageData(0, 0, 1, 1);
       safeImgs.push(img);
     } catch(e) {
-      tainted = true;  // this image is cross-origin, skip it
-      // Reset test canvas for next image
+      tainted = true;
       testCtx.clearRect(0, 0, 1, 1);
     }
   });
 
-  // Draw only safe images
   safeImgs.forEach(function(img) {
     const ir = img.getBoundingClientRect();
-    const x  = Math.round(ir.left - rect.left);
-    const y  = Math.round(ir.top  - rect.top);
+    const x = Math.round(ir.left - rect.left);
+    const y = Math.round(ir.top  - rect.top);
     const iw = Math.round(ir.width);
     const ih = Math.round(ir.height);
     if (x + iw <= 0 || y + ih <= 0 || x >= W || y >= H) return;
-    try { ctx.drawImage(img, x, OY + y, iw, ih); } catch(e) {}
+    try { ctx.drawImage(img, x, MAP_Y + y, iw, ih); } catch(e) {}
   });
 
   // ── Rounded-rect helper ───────────────────────────────────────────────────
@@ -4040,7 +4038,7 @@ function exportMapPNG() {
     c.closePath();
   }
 
-  // ── Vector overlay (SVG) ──────────────────────────────────────────────────
+  // ── Vector overlay (SVG paths — lines/polygons) ───────────────────────────
   function drawVectors(cb) {
     const svgEl = mapEl.querySelector('.leaflet-overlay-pane svg');
     if (!svgEl) { cb(); return; }
@@ -4055,19 +4053,17 @@ function exportMapPNG() {
     const guard  = setTimeout(function() { svgImg.onload = svgImg.onerror = null; cb(); }, 3000);
     svgImg.onload = function() {
       clearTimeout(guard);
+      // Position relative to map div, offset into canvas by MAP_Y
       const dx = Math.round(svgRect.left - rect.left);
       const dy = Math.round(svgRect.top  - rect.top);
-      try { ctx.drawImage(svgImg, dx, OY + dy, svgRect.width, svgRect.height); } catch(e) {}
+      try { ctx.drawImage(svgImg, dx, MAP_Y + dy, svgRect.width, svgRect.height); } catch(e) {}
       cb();
     };
     svgImg.onerror = function() { clearTimeout(guard); cb(); };
     svgImg.src = dataURI;
   }
 
-  // ── Marker pane (DivIcon point layers) ───────────────────────────────────
-  // Leaflet DivIcon markers live in .leaflet-marker-pane as <div> elements
-  // containing inline SVG — they are NOT in the overlay SVG or in img tags.
-  // We capture each marker's position and inner SVG and draw it on canvas.
+  // ── Point markers (DivIcon SVG elements) ──────────────────────────────────
   function drawMarkers(cb) {
     const markerEls = Array.from(
       mapEl.querySelectorAll('.leaflet-marker-pane .leaflet-marker-icon')
@@ -4080,22 +4076,19 @@ function exportMapPNG() {
       const y  = Math.round(mr.top  - rect.top);
       const w  = Math.round(mr.width)  || 14;
       const h  = Math.round(mr.height) || 14;
-
-      // innerHTML is the raw SVG string from _makePointIcon
-      // It already has xmlns so we must NOT add another one
       let svgStr = el.innerHTML.trim();
       if (!svgStr) return null;
-
-      // Strip any duplicate xmlns attrs before wrapping
+      // Strip any duplicate xmlns, then add exactly one
       svgStr = svgStr.replace(/\s+xmlns="[^"]*"/g, '');
-      // Ensure exactly one correct xmlns
       if (svgStr.startsWith('<svg')) {
         svgStr = svgStr.replace('<svg', '<svg xmlns="http://www.w3.org/2000/svg"');
       } else {
-        svgStr = `<svg xmlns="http://www.w3.org/2000/svg" width="${w}" height="${h}">${svgStr}</svg>`;
+        svgStr = '<svg xmlns="http://www.w3.org/2000/svg" width="' + w + '" height="' + h + '">' + svgStr + '</svg>';
       }
       return { x, y, w, h, svgStr };
-    }).filter(j => j && j.svgStr && j.x + j.w > 0 && j.y + j.h > 0 && j.x < W && j.y < H);
+    }).filter(function(j) {
+      return j && j.svgStr && j.x + j.w > 0 && j.y + j.h > 0 && j.x < W && j.y < H;
+    });
 
     if (!jobs.length) { cb(); return; }
 
@@ -4108,7 +4101,7 @@ function exportMapPNG() {
       const guard = setTimeout(function() { img.onload = img.onerror = null; done(); }, 1500);
       img.onload = function() {
         clearTimeout(guard);
-        try { ctx.drawImage(img, job.x, OY + job.y, job.w, job.h); } catch(e) {}
+        try { ctx.drawImage(img, job.x, MAP_Y + job.y, job.w, job.h); } catch(e) {}
         done();
       };
       img.onerror = function() { clearTimeout(guard); done(); };
@@ -4116,9 +4109,9 @@ function exportMapPNG() {
     });
   }
 
-  // ── Legend ────────────────────────────────────────────────────────────────
+  // ── Legend (top-right of map area) ───────────────────────────────────────
   function drawLegend() {
-    const layers = (state.layers || []).filter(l => l && !l.isTile && l.visible);
+    const layers = (state.layers || []).filter(function(l) { return l && !l.isTile && l.visible; });
     if (!layers.length) return;
 
     const rows = [];
@@ -4126,23 +4119,19 @@ function exportMapPNG() {
       if (layer.classified && layer.classifyClasses && layer.classifyClasses.length) {
         rows.push({ label: layer.name, isHeader: true });
         layer.classifyClasses.forEach(function(c) {
-          rows.push({
-            label: c.label, color: c.color,
+          rows.push({ label: c.label, color: c.color,
             isLine:  (layer.geomType||'').includes('Line'),
-            isPoint: (layer.geomType||'').includes('Point'),
-          });
+            isPoint: (layer.geomType||'').includes('Point') });
         });
       } else {
         const color   = layer.fillColor    || layer.color || '#3498db';
         const outline = layer.outlineColor || layer.color || '#3498db';
-        rows.push({
-          label: layer.name,
+        rows.push({ label: layer.name,
           color: layer.noFill ? 'transparent' : color,
           outline, noFill: layer.noFill,
           isLine:  (layer.geomType||'').includes('Line'),
           isPoint: (layer.geomType||'').includes('Point'),
-          shape: layer.pointShape || 'circle',
-        });
+          shape: layer.pointShape || 'circle' });
       }
     });
     if (!rows.length) return;
@@ -4150,7 +4139,7 @@ function exportMapPNG() {
     const ROW_H = 18, PAD = 8, SW = 14, GAP = 6, MAX_W = 200;
     const boxH  = rows.length * ROW_H + PAD * 2;
     const boxX  = W - MAX_W - 10;
-    const boxY  = OY + 10;
+    const boxY  = MAP_Y + 10;
 
     ctx.fillStyle = 'rgba(255,255,255,0.93)';
     ctx.strokeStyle = 'rgba(0,0,0,0.12)';
@@ -4176,23 +4165,16 @@ function exportMapPNG() {
         ctx.fillStyle = row.noFill ? 'transparent' : row.color;
         ctx.strokeStyle = row.outline || row.color;
         ctx.beginPath();
-        if (row.shape === 'square') {
-          ctx.rect(sx + 1, cy - SW/2 + 1, SW - 2, SW - 2);
-        } else if (row.shape === 'triangle') {
-          ctx.moveTo(sx + SW/2, cy - SW/2 + 1);
-          ctx.lineTo(sx + SW - 1, cy + SW/2 - 1);
-          ctx.lineTo(sx + 1, cy + SW/2 - 1);
-          ctx.closePath();
-        } else {
-          ctx.arc(sx + SW/2, cy, SW/2 - 1, 0, Math.PI * 2);
-        }
+        if (row.shape === 'square') { ctx.rect(sx+1, cy-SW/2+1, SW-2, SW-2); }
+        else if (row.shape === 'triangle') {
+          ctx.moveTo(sx+SW/2, cy-SW/2+1); ctx.lineTo(sx+SW-1, cy+SW/2-1); ctx.lineTo(sx+1, cy+SW/2-1); ctx.closePath();
+        } else { ctx.arc(sx+SW/2, cy, SW/2-1, 0, Math.PI*2); }
         ctx.fill(); ctx.stroke();
       } else {
         ctx.fillStyle = row.noFill ? 'rgba(0,0,0,0)' : row.color;
         ctx.strokeStyle = row.outline || row.color;
-        rrect(ctx, sx, cy - SW/2 + 1, SW + 2, SW - 2, 2);
-        if (!row.noFill) ctx.fill();
-        ctx.stroke();
+        rrect(ctx, sx, cy-SW/2+1, SW+2, SW-2, 2);
+        if (!row.noFill) ctx.fill(); ctx.stroke();
       }
       ctx.lineWidth = 1;
       ctx.fillStyle = '#2c3e50';
@@ -4201,54 +4183,79 @@ function exportMapPNG() {
     });
   }
 
-  // ── Scale bar ─────────────────────────────────────────────────────────────
-  function drawScaleBar() {
+  // ── Release clip, then draw overlaid UI elements ──────────────────────────
+  function drawOverlays() {
+    ctx.restore();  // release the map-area clip
+
+    // Legend sits on top of map area — draw after restoring clip
+    try { drawLegend(); } catch(e) { console.warn('Legend:', e); }
+  }
+
+  // ── Footer bar ────────────────────────────────────────────────────────────
+  function drawFooter() {
+    const footerY = MAP_Y + H;
+
+    // Dark footer background
+    ctx.fillStyle = '#1c2b3a';
+    ctx.fillRect(0, footerY, W, FOOTER_H);
+    // Thin top accent
+    ctx.fillStyle = '#14b1e7';
+    ctx.fillRect(0, footerY, W, 1);
+
+    // Scale (left)
     const scale = document.getElementById('scale-display')?.textContent || '';
     const zoom  = state.map ? Math.round(state.map.getZoom()) : '';
-    ctx.fillStyle = 'rgba(255,255,255,0.88)';
-    ctx.strokeStyle = 'rgba(0,0,0,0.10)';
-    ctx.lineWidth = 1;
-    rrect(ctx, 8, OY + H - 30, 195, 22, 4);
-    ctx.fill(); ctx.stroke();
-    ctx.fillStyle = '#1c2b3a';
-    ctx.font = 'bold 11px monospace';
-    ctx.fillText('1:' + scale + '  Z' + zoom, 14, OY + H - 14);
+    ctx.fillStyle = '#7a96aa';
+    ctx.font = '10px monospace';
+    ctx.fillText('Scale 1:' + scale + '  |  Zoom ' + zoom, 10, footerY + 18);
+
+    // Date (centre)
+    const dateStr = dd + ' ' + ['Jan','Feb','Mar','Apr','May','Jun','Jul','Aug','Sep','Oct','Nov','Dec'][now.getMonth()] + ' ' + yyyy;
+    ctx.fillStyle = '#a0bbc8';
+    ctx.font = '10px monospace';
+    const dw = ctx.measureText(dateStr).width;
+    ctx.fillText(dateStr, Math.round(W / 2 - dw / 2), footerY + 18);
+
+    // Gaia watermark (right)
+    ctx.fillStyle = '#14b1e7';
+    ctx.font = 'bold 10px monospace';
+    const gw = ctx.measureText('Gaia v1.0').width;
+    ctx.fillText('Gaia v1.0', W - gw - 10, footerY + 18);
   }
 
   // ── Logo + finalise ───────────────────────────────────────────────────────
   function finaliseAndSave() {
-    try { drawLegend(); } catch(e) { console.warn('Legend:', e); }
-    drawScaleBar();
+    drawOverlays();
+    drawFooter();
 
-    // Draw Umwelt logo into the title bar (left-aligned)
+    // Draw Umwelt logo into the title bar
     const logoImg = new Image();
-    const guard2  = setTimeout(function() { download(); }, 1500);
+    const guard2  = setTimeout(function() { doDownload(); }, 1500);
     logoImg.onload = function() {
       clearTimeout(guard2);
-      // Fit logo into title bar height with padding
       const lh = TITLE_H - 10;
       const lw = Math.round(logoImg.naturalWidth * (lh / logoImg.naturalHeight));
       try { ctx.drawImage(logoImg, 10, 5, lw, lh); } catch(e) {}
-      download();
+      doDownload();
     };
-    logoImg.onerror = function() { clearTimeout(guard2); download(); };
+    logoImg.onerror = function() { clearTimeout(guard2); doDownload(); };
     logoImg.src = 'data:image/png;base64,' + _UMWELT_LOGO_B64;
   }
 
-  function download() {
+  function doDownload() {
     const note     = tainted ? ' (basemap omitted — cross-origin)' : '';
     const filename = 'gaia-export-' + dd + '-' + mm + '-' + yyyy + '.png';
-    function doDownload(url, revoke) {
+    function dl(url, revoke) {
       const a = document.createElement('a');
       a.href = url; a.download = filename;
       document.body.appendChild(a); a.click(); document.body.removeChild(a);
-      if (revoke) setTimeout(() => URL.revokeObjectURL(url), 1500);
-      toast('Exported ✓' + note, 'success');
+      if (revoke) setTimeout(function() { URL.revokeObjectURL(url); }, 1500);
+      toast('Exported \u2713' + note, 'success');
     }
     try {
       out.toBlob(function(blob) {
-        if (blob) doDownload(URL.createObjectURL(blob), true);
-        else      doDownload(out.toDataURL('image/png'), false);
+        if (blob) dl(URL.createObjectURL(blob), true);
+        else      dl(out.toDataURL('image/png'), false);
       }, 'image/png');
     } catch(e) {
       toast('PNG export failed: ' + e.message, 'error');
