@@ -114,7 +114,7 @@ html, body { height: 100%; overflow: hidden; font-family: var(--sans); backgroun
   position: relative;
 }
 
-#map-container { flex: 1; position: relative; min-height: 0; }
+#map-container { flex: 1; position: relative; min-height: 0; overflow: hidden; }
 #map { width: 100%; height: 100%; }
 
 /* ── ATTRIBUTE TABLE STRIP (bottom of map column) ── */
@@ -620,13 +620,19 @@ select option { background: var(--bg2); }
 /* ── GUIDED EMPTY STATE ─────────────────────────────────────────────────── */
 #map-empty-state {
   position: absolute;
-  inset: 0;
+  top: 0;
+  left: 0;
+  right: 0;
+  bottom: 0;
+  width: 100%;
+  height: 100%;
   z-index: 500;
   display: flex;
   align-items: center;
   justify-content: center;
   pointer-events: none; /* let clicks through to map underneath */
   transition: opacity 0.3s ease;
+  box-sizing: border-box;
 }
 #map-empty-state.mes-dragging {
   background: rgba(20, 177, 231, 0.08);
