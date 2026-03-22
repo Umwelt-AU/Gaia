@@ -614,20 +614,39 @@ function refreshMapSelection(layerIdx) {
   const noFill = layer.noFill || false;
   const geomTypes = new Set((layer.geojson.features||[]).map(f=>f.geometry?.type).filter(Boolean));
   const isLine = [...geomTypes].some(t=>t.includes('Line'));
-  const normal   = { color, fillColor, fillOpacity: noFill ? 0 : 0.25, weight:isLine?2.5:1.5, opacity:0.9 };
-  const selected = { color:'#00ffff', fillColor, fillOpacity: noFill ? 0 : 0.25, weight:3, opacity:1 };
+  const isPoint = [...geomTypes].some(t=>t.includes('Point'));
+
+  // Build a per-feature colour lookup when layer is classified
+  let classifyColorMap = null;
+  if (layer.classified && layer.classifyClasses && layer.classifyClasses.length && layer.classifyField) {
+    classifyColorMap = new Map();
+    const field = layer.classifyField;
+    (layer.geojson.features || []).forEach(function(f, idx) {
+      const val = f.properties ? f.properties[field] : undefined;
+      // Use .test() if available (supports both unique and numeric-range classes)
+      const cls = layer.classifyClasses.find(c =>
+        typeof c.test === 'function' ? c.test(val) : String(c.label) === String(val)
+      );
+      if (cls) classifyColorMap.set(idx, cls.color);
+    });
+  }
+
   let fi = 0;
   layer.leafletLayer.eachLayer(function(sublayer) {
     const isSelected = state.selectedFeatureIndices.has(fi);
-    const isPoint = layer.geojson.features[fi]?.geometry?.type.includes('Point');
-    if (!isPoint) {
+    const featureIsPoint = layer.geojson.features[fi]?.geometry?.type.includes('Point');
+    const featureFill = (classifyColorMap && classifyColorMap.has(fi)) ? classifyColorMap.get(fi) : fillColor;
+    const featureStroke = (classifyColorMap && classifyColorMap.has(fi)) ? classifyColorMap.get(fi) : color;
+
+    if (!featureIsPoint) {
+      const normal   = { color: featureStroke, fillColor: featureFill, fillOpacity: noFill ? 0 : 0.25, weight: isLine ? 2.5 : 1.5, opacity: 0.9 };
+      const selected = { color: '#00ffff',     fillColor: featureFill, fillOpacity: noFill ? 0 : 0.25, weight: 3, opacity: 1 };
       sublayer.setStyle(isSelected ? selected : normal);
     } else {
-      // Point markers (DivIcon) — swap icon for selected state
       if (sublayer.setIcon) {
         const s = isSelected ? 18 : 14;
-        const outline = isSelected ? '#00ffff' : (layer.outlineColor || layer.color);
-        sublayer.setIcon(_makePointIcon(fillColor, outline, noFill, layer.pointShape || 'circle', s));
+        const outlineCol = isSelected ? '#00ffff' : (layer.outlineColor || featureStroke);
+        sublayer.setIcon(_makePointIcon(featureFill, outlineCol, noFill, layer.pointShape || 'circle', s));
       }
     }
     fi++;
@@ -2147,11 +2166,17 @@ function openLayerCtxMenu(e, idx) {
   ctxLayerIdx = idx;
   const menu = document.getElementById('layer-ctx-menu');
   const layer = state.layers[idx];
-  // Position near the click
-  const x = Math.min(e.clientX, window.innerWidth - 180);
-  const y = Math.min(e.clientY, window.innerHeight - 200);
-  menu.style.left = x + 'px'; menu.style.top = y + 'px';
   menu.classList.add('visible');
+  // Measure menu height after making visible (it has auto height)
+  const menuH = menu.offsetHeight || 250;
+  const menuW = menu.offsetWidth  || 190;
+  // Position near the click, but flip up if too close to bottom, clamp horizontally
+  const spaceBelow = window.innerHeight - e.clientY;
+  const x = Math.min(e.clientX, window.innerWidth - menuW - 8);
+  const y = spaceBelow < menuH + 10
+    ? Math.max(4, e.clientY - menuH)  // flip upward
+    : e.clientY;
+  menu.style.left = x + 'px'; menu.style.top = y + 'px';
   // Close on next click outside
   setTimeout(() => document.addEventListener('click', closeLayerCtxMenu, { once: true }), 10);
 }
@@ -4831,11 +4856,15 @@ const CSV_LAT_NAMES = ['lat','latitude','y','northing','ylat','lat_deg','lat_dd'
 const CSV_LNG_NAMES = ['lon','lng','long','longitude','x','easting','xlon','long_deg','lng_dd','lon_dd','longitude_dd','x_easting'];
 const CSV_WKT_NAMES = ['wkt_geometry','wkt','geometry','geom','shape','the_geom'];
 
+// Column names that suggest projected (metric) coordinates rather than geographic lat/lng
+const CSV_PROJECTED_LAT_NAMES = ['northing','y_northing'];
+const CSV_PROJECTED_LNG_NAMES = ['easting','x_easting'];
+
 async function loadCSV(file) {
   showProgress('Loading CSV', file.name, 20);
   try {
     const text = await file.text();
-    const geojson = csvToGeoJSON(text, file.name);
+    const geojson = await csvToGeoJSON(text, file.name);
     if (!geojson) { hideProgress(); return; }
     setProgress(90, 'Rendering…');
     addLayer(geojson, file.name.replace(/\.csv$/i,'').replace(/\.txt$/i,''), 'EPSG:4326', 'CSV');
@@ -4848,7 +4877,7 @@ async function loadCSV(file) {
   }
 }
 
-function csvToGeoJSON(text, filename) {
+async function csvToGeoJSON(text, filename) {
   // Parse CSV respecting quoted fields
   function parseCSV(str) {
     const rows = []; let row = []; let inQuote = false; let cell = '';
@@ -4885,11 +4914,48 @@ function csvToGeoJSON(text, filename) {
     return null;
   }
 
+  // Detect if coordinates are likely projected (metric) rather than geographic
+  let sourceCRS = 'EPSG:4326';
+  let needsReproject = false;
+  if (hasLatLng) {
+    const latColName = headerLower[latIdx];
+    const lngColName = headerLower[lngIdx];
+    const isProjectedByName = CSV_PROJECTED_LAT_NAMES.includes(latColName) ||
+                               CSV_PROJECTED_LNG_NAMES.includes(lngColName);
+
+    // Also check magnitude of first valid coordinate pair
+    let sampleLat = NaN, sampleLng = NaN;
+    for (let r = 1; r < Math.min(rows.length, 20); r++) {
+      const v1 = parseFloat(rows[r][latIdx]);
+      const v2 = parseFloat(rows[r][lngIdx]);
+      if (!isNaN(v1) && !isNaN(v2)) { sampleLat = v1; sampleLng = v2; break; }
+    }
+    // If values are outside geographic range (-180 to 180 / -90 to 90), must be projected
+    const isProjectedByValue = !isNaN(sampleLat) && !isNaN(sampleLng) &&
+      (Math.abs(sampleLat) > 90 || Math.abs(sampleLng) > 180);
+
+    if (isProjectedByName || isProjectedByValue) {
+      // Ask user which CRS the projected data is in
+      sourceCRS = await _promptCSVCRS(headers[latIdx], headers[lngIdx], sampleLat, sampleLng);
+      if (!sourceCRS) { toast('CSV load cancelled', 'info'); return null; }
+      needsReproject = (sourceCRS !== 'EPSG:4326');
+      toast(`CSV: Projected coordinates detected — using ${sourceCRS}`, 'info');
+    }
+  }
+
   // Columns to exclude from properties (geometry columns)
   const geomCols = new Set([wktIdx, ...(hasLatLng ? [latIdx, lngIdx] : [])].filter(i => i >= 0));
 
-  if (hasLatLng) toast(`CSV: Using "${headers[latIdx]}" / "${headers[lngIdx]}" for coordinates`, 'info');
-  else toast(`CSV: Using "${headers[wktIdx]}" (WKT) for geometry`, 'info');
+  if (hasLatLng && !needsReproject) toast(`CSV: Using "${headers[latIdx]}" / "${headers[lngIdx]}" for coordinates`, 'info');
+  else if (hasWKT) toast(`CSV: Using "${headers[wktIdx]}" (WKT) for geometry`, 'info');
+
+  // Set up reprojection if needed
+  let fromDef = null, toDef = null;
+  if (needsReproject) {
+    fromDef = CRS_DEFS[sourceCRS] || sourceCRS;
+    toDef   = CRS_DEFS['EPSG:4326'];
+    try { proj4; } catch(e) { toast('proj4 not loaded — cannot reproject CSV', 'error'); return null; }
+  }
 
   const features = [];
   let skipped = 0;
@@ -4898,13 +4964,21 @@ function csvToGeoJSON(text, filename) {
     let geometry = null;
 
     if (hasLatLng) {
-      const lat = parseFloat(row[latIdx]);
-      const lng = parseFloat(row[lngIdx]);
-      if (!isNaN(lat) && !isNaN(lng)) geometry = { type: 'Point', coordinates: [lng, lat] };
+      let northing = parseFloat(row[latIdx]);
+      let easting  = parseFloat(row[lngIdx]);
+      if (!isNaN(northing) && !isNaN(easting)) {
+        if (needsReproject) {
+          try {
+            const [lon, lat] = proj4(fromDef, toDef, [easting, northing]);
+            geometry = { type: 'Point', coordinates: [lon, lat] };
+          } catch(e) { skipped++; continue; }
+        } else {
+          geometry = { type: 'Point', coordinates: [easting, northing] };
+        }
+      }
     }
 
     if (!geometry && hasWKT) {
-      // Parse WKT string to GeoJSON geometry
       const wktStr = (row[wktIdx] || '').trim().replace(/^"|"$/g, '');
       geometry = wktToGeometry(wktStr);
     }
@@ -4921,6 +4995,109 @@ function csvToGeoJSON(text, filename) {
 
   toast(`CSV: Loaded ${features.length} feature${features.length !== 1 ? 's' : ''}`, 'success');
   return { type: 'FeatureCollection', features };
+}
+
+// Prompt user to select the CRS for projected CSV coordinates
+function _promptCSVCRS(latCol, lngCol, sampleLat, sampleLng) {
+  return new Promise(resolve => {
+    // Build a simple modal
+    const overlay = document.createElement('div');
+    overlay.style.cssText = 'position:fixed;inset:0;z-index:99999;background:rgba(0,0,0,0.5);display:flex;align-items:center;justify-content:center;';
+    overlay.innerHTML = `
+      <div style="background:#fff;border-radius:10px;padding:22px 26px;min-width:340px;max-width:440px;box-shadow:0 8px 32px rgba(0,0,0,0.22);font-family:var(--mono,monospace);">
+        <div style="font-size:13px;font-weight:700;color:#1a2a3a;margin-bottom:8px;">Projected Coordinates Detected</div>
+        <div style="font-size:11px;color:#555;margin-bottom:14px;line-height:1.5;">
+          Columns <strong>${latCol}</strong> / <strong>${lngCol}</strong> appear to be projected coordinates
+          ${!isNaN(sampleLat) ? `(sample: ${sampleLat.toFixed(1)}, ${sampleLng.toFixed(1)})` : ''}.
+          <br>Select the coordinate system:
+        </div>
+        <select id="_csv_crs_sel" style="width:100%;padding:6px 8px;font-family:inherit;font-size:11px;border:1px solid #ccc;border-radius:5px;margin-bottom:6px;">
+          <optgroup label="GDA2020 / MGA (Australia)">
+            <option value="EPSG:7850">GDA2020 / MGA Zone 50 (WA West)</option>
+            <option value="EPSG:7851">GDA2020 / MGA Zone 51 (WA)</option>
+            <option value="EPSG:7852">GDA2020 / MGA Zone 52 (WA/NT/SA)</option>
+            <option value="EPSG:7853">GDA2020 / MGA Zone 53 (NT/SA/VIC)</option>
+            <option value="EPSG:7854">GDA2020 / MGA Zone 54 (QLD/NSW)</option>
+            <option value="EPSG:7855">GDA2020 / MGA Zone 55 (NSW/VIC/TAS)</option>
+            <option value="EPSG:7856">GDA2020 / MGA Zone 56 (NSW/QLD)</option>
+          </optgroup>
+          <optgroup label="GDA94 / MGA (Australia)">
+            <option value="EPSG:28350">GDA94 / MGA Zone 50</option>
+            <option value="EPSG:28351">GDA94 / MGA Zone 51</option>
+            <option value="EPSG:28352">GDA94 / MGA Zone 52</option>
+            <option value="EPSG:28353">GDA94 / MGA Zone 53</option>
+            <option value="EPSG:28354">GDA94 / MGA Zone 54</option>
+            <option value="EPSG:28355">GDA94 / MGA Zone 55</option>
+            <option value="EPSG:28356">GDA94 / MGA Zone 56</option>
+          </optgroup>
+          <optgroup label="Web Mercator / UTM">
+            <option value="EPSG:3857">Web Mercator (EPSG:3857)</option>
+            <option value="EPSG:32750">UTM Zone 50S</option>
+            <option value="EPSG:32751">UTM Zone 51S</option>
+            <option value="EPSG:32752">UTM Zone 52S</option>
+            <option value="EPSG:32753">UTM Zone 53S</option>
+            <option value="EPSG:32754">UTM Zone 54S</option>
+            <option value="EPSG:32755">UTM Zone 55S</option>
+            <option value="EPSG:32756">UTM Zone 56S</option>
+          </optgroup>
+          <option value="EPSG:4326">Geographic WGS84 (lat/lng)</option>
+          <option value="custom">Custom EPSG code…</option>
+        </select>
+        <div id="_csv_crs_custom" style="display:none;margin-bottom:6px;">
+          <input id="_csv_crs_custom_val" type="text" placeholder="e.g. EPSG:32755 or proj4 string"
+            style="width:100%;padding:5px 8px;font-family:inherit;font-size:11px;border:1px solid #ccc;border-radius:5px;box-sizing:border-box;">
+        </div>
+        <div style="display:flex;gap:8px;justify-content:flex-end;margin-top:12px;">
+          <button id="_csv_crs_cancel" style="padding:6px 14px;font-family:inherit;font-size:11px;border:1px solid #ccc;border-radius:5px;cursor:pointer;background:#f5f5f5;">Cancel</button>
+          <button id="_csv_crs_ok" style="padding:6px 14px;font-family:inherit;font-size:11px;border:none;border-radius:5px;cursor:pointer;background:#14b1e7;color:#fff;font-weight:700;">Load</button>
+        </div>
+      </div>`;
+    document.body.appendChild(overlay);
+
+    const sel = overlay.querySelector('#_csv_crs_sel');
+    const customDiv = overlay.querySelector('#_csv_crs_custom');
+    const customVal = overlay.querySelector('#_csv_crs_custom_val');
+
+    sel.addEventListener('change', () => {
+      customDiv.style.display = sel.value === 'custom' ? 'block' : 'none';
+    });
+
+    overlay.querySelector('#_csv_crs_cancel').addEventListener('click', () => {
+      document.body.removeChild(overlay); resolve(null);
+    });
+    overlay.querySelector('#_csv_crs_ok').addEventListener('click', () => {
+      let crs = sel.value;
+      if (crs === 'custom') {
+        crs = customVal.value.trim();
+        if (!crs) { customVal.style.borderColor = 'red'; return; }
+      }
+      // Register the CRS with proj4 if it's an EPSG code we know
+      _ensureCRS(crs);
+      document.body.removeChild(overlay); resolve(crs);
+    });
+  });
+}
+
+function _ensureCRS(epsg) {
+  if (CRS_DEFS[epsg]) return; // already known
+  // Try to add common Australian MGA/UTM zones not in main CRS_DEFS
+  const extra = {
+    'EPSG:7850': '+proj=utm +zone=50 +south +ellps=GRS80 +towgs84=0,0,0,0,0,0,0 +units=m +no_defs',
+    'EPSG:7851': '+proj=utm +zone=51 +south +ellps=GRS80 +towgs84=0,0,0,0,0,0,0 +units=m +no_defs',
+    'EPSG:7852': '+proj=utm +zone=52 +south +ellps=GRS80 +towgs84=0,0,0,0,0,0,0 +units=m +no_defs',
+    'EPSG:7853': '+proj=utm +zone=53 +south +ellps=GRS80 +towgs84=0,0,0,0,0,0,0 +units=m +no_defs',
+    'EPSG:7854': '+proj=utm +zone=54 +south +ellps=GRS80 +towgs84=0,0,0,0,0,0,0 +units=m +no_defs',
+    'EPSG:7855': '+proj=utm +zone=55 +south +ellps=GRS80 +towgs84=0,0,0,0,0,0,0 +units=m +no_defs',
+    'EPSG:7856': '+proj=utm +zone=56 +south +ellps=GRS80 +towgs84=0,0,0,0,0,0,0 +units=m +no_defs',
+    'EPSG:32750': '+proj=utm +zone=50 +south +datum=WGS84 +units=m +no_defs',
+    'EPSG:32751': '+proj=utm +zone=51 +south +datum=WGS84 +units=m +no_defs',
+    'EPSG:32752': '+proj=utm +zone=52 +south +datum=WGS84 +units=m +no_defs',
+    'EPSG:32753': '+proj=utm +zone=53 +south +datum=WGS84 +units=m +no_defs',
+    'EPSG:32754': '+proj=utm +zone=54 +south +datum=WGS84 +units=m +no_defs',
+    'EPSG:32755': '+proj=utm +zone=55 +south +datum=WGS84 +units=m +no_defs',
+    'EPSG:32756': '+proj=utm +zone=56 +south +datum=WGS84 +units=m +no_defs',
+  };
+  if (extra[epsg]) { CRS_DEFS[epsg] = extra[epsg]; if (typeof proj4 !== 'undefined') proj4.defs(epsg, extra[epsg]); }
 }
 
 // Parse WKT string → GeoJSON geometry (supports Point, LineString, Polygon, Multi*)
