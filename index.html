@@ -34,7 +34,20 @@
   <span class="header-tag">Gaia v1.0</span>
   <div class="header-actions">
     <button class="btn btn-ghost btn-sm" onclick="fitAll()" style="color:#e8f4fb;border-color:rgba(255,255,255,0.3);background:rgba(255,255,255,0.08);">⛶ Fit View</button>
-    <button id="export-session-btn" class="btn btn-ghost btn-sm" onclick="doExportSession()" title="Export session as .gaia file — drag onto a new session to restore all layers and symbology" style="color:#7ee8a2;border-color:rgba(100,220,130,0.4);background:rgba(80,200,100,0.10);font-weight:600;">💾 Export Session</button>
+    <div style="position:relative;display:inline-block;">
+  <button id="export-session-btn" class="btn btn-ghost btn-sm" onclick="toggleExportDropdown(event)" title="Export session — choose File or Share URL" style="color:#7ee8a2;border-color:rgba(100,220,130,0.4);background:rgba(80,200,100,0.10);font-weight:600;">💾 Export Session ▾</button>
+  <div id="export-session-dropdown" style="display:none;position:absolute;right:0;top:calc(100% + 4px);z-index:9999;background:#fff;border:1px solid var(--border);border-radius:7px;box-shadow:0 4px 18px rgba(0,0,0,0.18);min-width:180px;overflow:hidden;">
+    <div style="font-family:var(--mono);font-size:8px;font-weight:700;color:#2c3e50;letter-spacing:1px;text-transform:uppercase;padding:7px 10px 5px;border-bottom:1px solid var(--border);">Export As</div>
+    <div onclick="doExportFile()" style="padding:8px 12px;font-family:var(--mono);font-size:10px;color:#2c3e50;cursor:pointer;display:flex;align-items:center;gap:8px;" onmouseover="this.style.background='#f0f4f8'" onmouseout="this.style.background=''">
+      <span style="font-size:14px;">💾</span>
+      <div><div style="font-weight:600;">Local File</div><div style="font-size:9px;color:#666;margin-top:1px;">.gaia file — drag to restore</div></div>
+    </div>
+    <div onclick="doExportURL()" style="padding:8px 12px;font-family:var(--mono);font-size:10px;color:#2c3e50;cursor:pointer;display:flex;align-items:center;gap:8px;border-top:1px solid var(--border);" onmouseover="this.style.background='#f0f4f8'" onmouseout="this.style.background=''">
+      <span style="font-size:14px;">🔗</span>
+      <div><div style="font-weight:600;">Copy Share URL</div><div style="font-size:9px;color:#666;margin-top:1px;">Link opens session instantly</div></div>
+    </div>
+  </div>
+</div>
     <button class="btn btn-ghost btn-sm" onclick="if(confirm('Clear session? This removes all layers from the map.')) { clearSession(); }" title="Clear all layers and reset the session" style="color:#ffaaaa;border-color:rgba(255,100,100,0.4);background:rgba(255,80,80,0.08);">🗑 Clear Session</button>
     <button id="dark-mode-btn" onclick="toggleDarkMode()" title="Toggle dark/light mode" style="color:#e8f4fb;border-color:rgba(255,255,255,0.3);background:rgba(255,255,255,0.08);font-size:14px;padding:3px 8px;border:1px solid rgba(255,255,255,0.3);border-radius:5px;cursor:pointer;line-height:1;">🌙</button>
   </div>
@@ -232,8 +245,18 @@
           <option value="dark">CartoDB Dark</option>
           <option value="topo">OpenTopoMap</option>
           <option value="satellite">ESRI Satellite</option>
+          <option value="satelliteHybrid">Satellite Hybrid</option>
           <option value="none">None</option>
         </select>
+      </div>
+      <!-- Basemap opacity slider -->
+      <div style="display:flex;align-items:center;gap:6px;padding:4px 8px 5px;border-top:1px solid var(--border);" draggable="false" onmousedown="event.stopPropagation()" ontouchstart="event.stopPropagation()">
+        <span style="font-family:var(--mono);font-size:9px;color:var(--text3);white-space:nowrap;min-width:50px;">Basemap</span>
+        <input type="range" id="basemap-opacity" min="0" max="1" step="0.05" value="1"
+               style="flex:1;cursor:pointer;"
+               oninput="setBasemapOpacity(this.value)"
+               onmousedown="event.stopPropagation()" ontouchstart="event.stopPropagation()"/>
+        <span id="basemap-opacity-pct" style="font-family:var(--mono);font-size:9px;color:var(--sky);font-weight:600;min-width:28px;text-align:right;">100%</span>
       </div>
     </div>
 

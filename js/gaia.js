@@ -10,7 +10,7 @@ const state = {
   selectedFeatureIndices: new Set(),
   sortCol: null, sortDir: 1, filterText: '', showOnlySelected: false, columnOrder: null,
   exportFormat: 'geojson', displayCRS: 'EPSG:4326',
-  map: null, basemapLayer: null,
+  map: null, basemapLayer: null, basemapOverlay: null,
 };
 
 // ── CRS DEFINITIONS ──
@@ -51,17 +51,19 @@ function isProjectedCRS(epsg) {
 }
 
 const BASEMAPS = {
-  light:     { url:'https://{s}.basemaps.cartocdn.com/light_all/{z}/{x}/{y}{r}.png', attr:'© CARTO', maxZoom:19 },
-  dark:      { url:'https://{s}.basemaps.cartocdn.com/dark_all/{z}/{x}/{y}{r}.png', attr:'© CARTO', maxZoom:19 },
-  topo:      { url:'https://{s}.tile.opentopomap.org/{z}/{x}/{y}.png', attr:'© OpenTopoMap', maxZoom:17 },
-  satellite: { url:'https://server.arcgisonline.com/ArcGIS/rest/services/World_Imagery/MapServer/tile/{z}/{y}/{x}', attr:'© Esri', maxZoom:19 },
-  none:      null,
+  light:            { url:'https://{s}.basemaps.cartocdn.com/light_all/{z}/{x}/{y}{r}.png', attr:'© CARTO', maxZoom:19 },
+  dark:             { url:'https://{s}.basemaps.cartocdn.com/dark_all/{z}/{x}/{y}{r}.png', attr:'© CARTO', maxZoom:19 },
+  topo:             { url:'https://{s}.tile.opentopomap.org/{z}/{x}/{y}.png', attr:'© OpenTopoMap', maxZoom:17 },
+  satellite:        { url:'https://server.arcgisonline.com/ArcGIS/rest/services/World_Imagery/MapServer/tile/{z}/{y}/{x}', attr:'© Esri', maxZoom:19 },
+  satelliteHybrid:  { url:'https://server.arcgisonline.com/ArcGIS/rest/services/World_Imagery/MapServer/tile/{z}/{y}/{x}', attr:'© Esri', maxZoom:19,
+                      overlay: 'https://{s}.basemaps.cartocdn.com/light_only_labels/{z}/{x}/{y}{r}.png' },
+  none:             null,
 };
 
 // ── INIT ──
 window.addEventListener('DOMContentLoaded', () => {
   // Restore saved session
-  setTimeout(() => { loadSession(); }, 150);
+  setTimeout(() => { loadSession(); _checkURLSession(); }, 150);
   state.map = L.map('map', { zoomControl: true }).setView([-27, 133], 4);
   changeBasemap();
 
@@ -181,13 +183,27 @@ function initAttrResize() {
 
 // ── BASEMAP ──
 function changeBasemap() {
+  // Remove existing basemap layer(s)
   if (state.basemapLayer) { state.map.removeLayer(state.basemapLayer); state.basemapLayer = null; }
+  if (state.basemapOverlay) { state.map.removeLayer(state.basemapOverlay); state.basemapOverlay = null; }
   const key = document.getElementById('basemap-select').value;
-  const bm = BASEMAPS[key];
+  const bm  = BASEMAPS[key];
+  const opacity = parseFloat(document.getElementById('basemap-opacity')?.value ?? 1);
   if (bm) {
-    state.basemapLayer = L.tileLayer(bm.url, { attribution: bm.attr, maxZoom: bm.maxZoom });
+    state.basemapLayer = L.tileLayer(bm.url, { attribution: bm.attr, maxZoom: bm.maxZoom, opacity });
     state.basemapLayer.addTo(state.map);
+    // Hybrid: add label overlay at full opacity so labels stay legible
+    if (bm.overlay) {
+      state.basemapOverlay = L.tileLayer(bm.overlay, { attribution: '', maxZoom: bm.maxZoom, opacity: 1 });
+      state.basemapOverlay.addTo(state.map);
+    }
   }
+}
+
+function setBasemapOpacity(val) {
+  document.getElementById('basemap-opacity-pct').textContent = Math.round(val * 100) + '%';
+  if (state.basemapLayer) state.basemapLayer.setOpacity(parseFloat(val));
+  // Don't change overlay opacity — labels should stay sharp
 }
 
 // ── CRS MODAL ──
@@ -3517,6 +3533,129 @@ function doSaveLocally() {
   }
   toast('Session saved — will restore on next open', 'success');
 }
+
+// ══════════════════════════════════════════════════
+// EXPORT SESSION AS URL
+// Compresses session JSON with LZ-based encoding and
+// encodes it into the URL hash for sharing.
+// ══════════════════════════════════════════════════
+
+function _buildSessionPayload() {
+  if (!state.layers.length) return null;
+  return {
+    version: 1,
+    gaiaExport: true,
+    exportedAt: new Date().toISOString(),
+    mapView: state.map ? {
+      lat: state.map.getCenter().lat,
+      lng: state.map.getCenter().lng,
+      zoom: state.map.getZoom()
+    } : null,
+    basemap: document.getElementById('basemap-select')?.value || 'light',
+    activeLayerIndex: state.activeLayerIndex,
+    displayCRS: state.displayCRS,
+    layers: state.layers.map(layer => {
+      if (layer.isTile) {
+        return { isTile: true, name: layer.name, color: layer.color, visible: layer.visible,
+                 format: layer.format || 'Tile', tileUrl: layer.tileUrl || null,
+                 tileType: layer.tileType || null,
+                 layerOpacity: layer.layerOpacity != null ? layer.layerOpacity : 1 };
+      }
+      return { isTile: false, name: layer.name, color: layer.color,
+               fillColor: layer.fillColor || null, outlineColor: layer.outlineColor || null,
+               noFill: layer.noFill || false, pointShape: layer.pointShape || 'circle',
+               visible: layer.visible, format: layer.format, sourceCRS: layer.sourceCRS,
+               geomType: layer.geomType, editable: layer.editable || false,
+               editGeomType: layer.editGeomType || null, fields: layer.fields,
+               geojson: layer.geojson,
+               layerOpacity: layer.layerOpacity != null ? layer.layerOpacity : 1,
+               labelConfig: layer.labelConfig || null };
+    }),
+  };
+}
+
+function copySessionURL() {
+  const payload = _buildSessionPayload();
+  if (!payload) { toast('No layers to share', 'error'); return; }
+  try {
+    const json    = JSON.stringify(payload);
+    const encoded = btoa(unescape(encodeURIComponent(json)));
+    const url     = window.location.origin + window.location.pathname + '#s=' + encoded;
+    if (url.length > 200000) {
+      toast('Session too large for a URL — use File export instead', 'error');
+      return;
+    }
+    navigator.clipboard.writeText(url).then(function() {
+      toast('Share URL copied to clipboard!', 'success');
+      const btn = document.getElementById('export-session-btn');
+      if (btn) {
+        const orig = btn.textContent;
+        btn.textContent = '✓ Copied!';
+        btn.style.color = '#39d353';
+        setTimeout(() => { btn.textContent = orig; btn.style.color = '#7ee8a2'; }, 2200);
+      }
+    }).catch(function() {
+      // Fallback: prompt
+      window.prompt('Copy this share URL:', url);
+    });
+  } catch(err) {
+    toast('URL export failed: ' + err.message, 'error');
+  }
+}
+
+// Called on page load — check if there is a #s= hash and load session from it
+function _checkURLSession() {
+  const hash = window.location.hash;
+  if (!hash.startsWith('#s=')) return;
+  try {
+    const encoded = hash.slice(3);
+    const json    = decodeURIComponent(escape(atob(encoded)));
+    const data    = JSON.parse(json);
+    if (!data || !data.gaiaExport) return;
+    // Clear hash so a reload doesn't re-load the same session
+    history.replaceState(null, '', window.location.pathname);
+    // Restore map view if present
+    if (data.mapView && state.map) {
+      state.map.setView([data.mapView.lat, data.mapView.lng], data.mapView.zoom);
+    }
+    // Restore basemap
+    if (data.basemap) {
+      const sel = document.getElementById('basemap-select');
+      if (sel) { sel.value = data.basemap; changeBasemap(); }
+    }
+    // Re-use the existing GAIA loader by building a fake File object
+    const blob = new Blob([JSON.stringify(data)], { type: 'application/json' });
+    const file = new File([blob], 'shared.gaia', { type: 'application/json' });
+    loadGAIASession(file).then(() => {
+      toast('Shared session loaded!', 'success');
+    }).catch(e => toast('Could not load shared session: ' + e.message, 'error'));
+  } catch(e) {
+    console.warn('URL session parse failed:', e);
+  }
+}
+
+function toggleExportDropdown(e) {
+  e.stopPropagation();
+  const dd = document.getElementById('export-session-dropdown');
+  const isOpen = dd.style.display !== 'none';
+  dd.style.display = isOpen ? 'none' : 'block';
+  if (!isOpen) {
+    setTimeout(() => document.addEventListener('click', _closeExportDropdown, { once: true }), 10);
+  }
+}
+function _closeExportDropdown() {
+  const d = document.getElementById('export-session-dropdown');
+  if (d) d.style.display = 'none';
+}
+function doExportFile() {
+  _closeExportDropdown();
+  doExportSession();
+}
+function doExportURL() {
+  _closeExportDropdown();
+  copySessionURL();
+}
+
 
 function doExportSession() {
   const sp = document.getElementById('save-popup');
