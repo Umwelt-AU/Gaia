@@ -80,6 +80,10 @@ function agolSignIn() {
   const redirectUri = AGOL_CONFIG.redirectUri ||
     window.location.href.split('?')[0].split('#')[0];
 
+  // Save the current map session before redirecting so layers are restored
+  // when the page reloads after OAuth completes.
+  if (typeof saveSession === 'function') saveSession();
+
   const params = new URLSearchParams({
     client_id:     AGOL_CONFIG.clientId,
     response_type: 'token',
