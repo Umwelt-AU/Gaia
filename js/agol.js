@@ -283,6 +283,9 @@ function _agolRenderSignIn() {
            <div style="font-family:var(--mono);font-size:9px;color:var(--text3);margin-top:10px;line-height:1.6;">
              Your organisation's login page will open in this tab.<br/>
              Gaia never handles your password.
+           </div>
+           <div style="font-family:var(--mono);font-size:9px;color:#e8a87c;margin-top:10px;line-height:1.6;padding:8px 10px;border:1px solid rgba(232,168,124,0.3);border-radius:5px;background:rgba(232,168,124,0.07);">
+             ⚠ Logging in to ArcGIS Online will refresh your map state — removing your current active layers.
            </div>`
         : `<a href="gaia-config.js" target="_blank"
              style="font-family:var(--mono);font-size:10px;color:var(--teal);">
