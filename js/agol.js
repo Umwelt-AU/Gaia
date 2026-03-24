@@ -897,5 +897,13 @@ document.addEventListener('DOMContentLoaded', function() {
   const hash = window.location.hash;
   if (hash && hash.includes('access_token')) {
     agolInit();
+    // The OAuth redirect causes a full page reload, which wipes in-memory state.
+    // agolSignIn() saved the session to localStorage before redirecting — reload it
+    // now, after a short delay to let gaia.js finish map initialisation first.
+    setTimeout(function() {
+      if (typeof loadSession === 'function') {
+        loadSession();
+      }
+    }, 300);
   }
 });
