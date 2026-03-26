@@ -381,16 +381,165 @@ async function loadShapefile(baseName, exts) {
   } catch(err) { hideProgress(); toast(`Shapefile error: ${err.message}`, 'error'); console.error(err); }
 }
 
+// ── KML FOLDER / LAYER PARSING ──────────────────────────────────────────────
+// Returns array of { name, geojson } — one entry per top-level Folder, or a
+// single entry for the whole document if there are no Folders.
+function kmlExtractLayers(dom, docName) {
+  const folders = Array.from(dom.querySelectorAll('Document > Folder, kml > Folder'));
+  if (folders.length === 0) {
+    // No folder structure — treat whole doc as one layer
+    const gj = toGeoJSON.kml(dom);
+    if (!gj || !gj.features || gj.features.length === 0) return [];
+    return [{ name: docName, geojson: gj }];
+  }
+
+  const layers = [];
+  folders.forEach(folder => {
+    const rawName = folder.querySelector(':scope > name')?.textContent?.trim() || 'Layer';
+    // Wrap this folder in a minimal KML document so toGeoJSON can parse it
+    const wrapper = dom.implementation.createDocument(
+      'http://www.opengis.net/kml/2.2', 'kml', null
+    );
+    const doc = wrapper.createElement('Document');
+    doc.appendChild(folder.cloneNode(true));
+    wrapper.documentElement.appendChild(doc);
+    const gj = toGeoJSON.kml(wrapper);
+    if (gj && gj.features && gj.features.length > 0) {
+      layers.push({ name: rawName, geojson: gj });
+    }
+  });
+
+  // Also pick up any Placemarks that sit directly in the Document (not in folders)
+  const rootPlacemarks = Array.from(
+    dom.querySelectorAll('Document > Placemark, kml > Placemark')
+  );
+  if (rootPlacemarks.length > 0) {
+    const wrapper = dom.implementation.createDocument(
+      'http://www.opengis.net/kml/2.2', 'kml', null
+    );
+    const doc = wrapper.createElement('Document');
+    rootPlacemarks.forEach(pm => doc.appendChild(pm.cloneNode(true)));
+    wrapper.documentElement.appendChild(doc);
+    const gj = toGeoJSON.kml(wrapper);
+    if (gj && gj.features && gj.features.length > 0) {
+      layers.push({ name: docName + ' (root)', geojson: gj });
+    }
+  }
+
+  return layers.length > 0 ? layers : [{ name: docName, geojson: toGeoJSON.kml(dom) }];
+}
+
+// ── KML LAYER PICKER STATE ───────────────────────────────────────────────────
+let _kmlPickLayers  = [];   // [{ name, geojson }]
+let _kmlPickResolve = null; // promise resolver
+
+function _showKMLPicker(layers, title) {
+  return new Promise(resolve => {
+    _kmlPickLayers  = layers;
+    _kmlPickResolve = resolve;
+
+    document.getElementById('kml-pick-title').textContent = '📂 ' + title;
+    const list = document.getElementById('kml-pick-list');
+    list.innerHTML = '';
+
+    layers.forEach((l, i) => {
+      const row = document.createElement('label');
+      row.style.cssText = 'display:flex;align-items:center;gap:10px;padding:7px 10px;border-radius:5px;cursor:pointer;border:1px solid var(--border);background:var(--bg3);transition:background 0.12s;';
+      row.onmouseover  = () => { row.style.background = 'rgba(0,116,168,0.06)'; };
+      row.onmouseout   = () => { row.style.background = 'var(--bg3)'; };
+
+      const cb = document.createElement('input');
+      cb.type    = 'checkbox';
+      cb.checked = true;
+      cb.dataset.idx = i;
+      cb.style.cssText = 'accent-color:var(--accent);width:15px;height:15px;flex-shrink:0;cursor:pointer;';
+      cb.addEventListener('change', _updateKMLPickCount);
+
+      const info = document.createElement('div');
+      info.style.cssText = 'flex:1;min-width:0;';
+      info.innerHTML = `<div style="font-size:12px;font-weight:500;color:var(--text);white-space:nowrap;overflow:hidden;text-overflow:ellipsis;">${escHtml(l.name)}</div>`
+        + `<div style="font-family:var(--mono);font-size:9px;color:var(--text3);margin-top:1px;">${l.geojson.features.length} feature${l.geojson.features.length !== 1 ? 's' : ''} · ${_kmlGeomSummary(l.geojson)}</div>`;
+
+      row.appendChild(cb);
+      row.appendChild(info);
+      list.appendChild(row);
+    });
+
+    _updateKMLPickCount();
+    document.getElementById('kml-pick-backdrop').classList.add('open');
+  });
+}
+
+function _kmlGeomSummary(gj) {
+  const types = {};
+  (gj.features || []).forEach(f => {
+    const t = f.geometry?.type || 'Unknown';
+    const base = t.replace('Multi','').replace('Collection','Geometry');
+    types[base] = (types[base] || 0) + 1;
+  });
+  return Object.entries(types).map(([k,v]) => `${v} ${k.toLowerCase()}${v !== 1?'s':''}`).join(', ') || 'no geometry';
+}
+
+function _updateKMLPickCount() {
+  const total   = document.querySelectorAll('#kml-pick-list input[type=checkbox]').length;
+  const checked = document.querySelectorAll('#kml-pick-list input[type=checkbox]:checked').length;
+  document.getElementById('kml-pick-count').textContent = `${checked} / ${total} selected`;
+}
+
+function kmlPickSelectAll() {
+  document.querySelectorAll('#kml-pick-list input[type=checkbox]').forEach(cb => { cb.checked = true; });
+  _updateKMLPickCount();
+}
+function kmlPickSelectNone() {
+  document.querySelectorAll('#kml-pick-list input[type=checkbox]').forEach(cb => { cb.checked = false; });
+  _updateKMLPickCount();
+}
+
+function cancelKMLPick() {
+  document.getElementById('kml-pick-backdrop').classList.remove('open');
+  if (_kmlPickResolve) { _kmlPickResolve([]); _kmlPickResolve = null; }
+}
+
+function confirmKMLPick() {
+  const selected = [];
+  document.querySelectorAll('#kml-pick-list input[type=checkbox]:checked').forEach(cb => {
+    selected.push(_kmlPickLayers[parseInt(cb.dataset.idx)]);
+  });
+  document.getElementById('kml-pick-backdrop').classList.remove('open');
+  if (_kmlPickResolve) { _kmlPickResolve(selected); _kmlPickResolve = null; }
+}
+
+function escHtml(str) {
+  return String(str).replace(/&/g,'&amp;').replace(/</g,'&lt;').replace(/>/g,'&gt;').replace(/"/g,'&quot;');
+}
+
 async function loadKML(file) {
   showProgress('Loading KML', file.name, 30);
   try {
     const text = await file.text();
-    const dom = new DOMParser().parseFromString(text, 'text/xml');
-    const geojson = toGeoJSON.kml(dom);
-    setProgress(90, 'Rendering…');
-    addLayer(geojson, file.name.replace('.kml',''), 'EPSG:4326', 'KML');
+    const dom  = new DOMParser().parseFromString(text, 'text/xml');
+    const docName = file.name.replace(/\.kml$/i, '');
+    const layers  = kmlExtractLayers(dom, docName);
+
+    if (layers.length === 0) {
+      hideProgress(); toast(`KML file appears to be empty`, 'error'); return;
+    }
+
     hideProgress();
-    toast(`Loaded: ${file.name} (${geojson.features.length} features)`, 'success');
+
+    // If only one layer — load directly without the picker
+    let toLoad = layers;
+    if (layers.length > 1) {
+      toLoad = await _showKMLPicker(layers, `${docName} — select layers`);
+    }
+
+    if (!toLoad || toLoad.length === 0) {
+      toast('No layers selected', 'info'); return;
+    }
+
+    toLoad.forEach(l => addLayer(l.geojson, l.name, 'EPSG:4326', 'KML'));
+    const total = toLoad.reduce((s, l) => s + l.geojson.features.length, 0);
+    toast(`Loaded ${toLoad.length} layer${toLoad.length !== 1 ? 's' : ''} (${total} features) from ${file.name}`, 'success');
   } catch(err) { hideProgress(); toast(`KML error: ${err.message}`, 'error'); }
 }
 
@@ -399,15 +548,40 @@ async function loadKMZ(file) {
   try {
     const zip = await JSZip.loadAsync(await file.arrayBuffer());
     setProgress(50, 'Extracting KML…');
-    const kmlEntry = Object.values(zip.files).find(f => f.name.endsWith('.kml'));
-    if (!kmlEntry) throw new Error('No KML file found in KMZ');
-    const text = await kmlEntry.async('string');
-    const dom = new DOMParser().parseFromString(text, 'text/xml');
-    const geojson = toGeoJSON.kml(dom);
-    setProgress(90, 'Rendering…');
-    addLayer(geojson, file.name.replace('.kmz',''), 'EPSG:4326', 'KMZ');
+
+    // A KMZ can contain multiple KML files — find them all
+    const kmlEntries = Object.values(zip.files).filter(f => f.name.toLowerCase().endsWith('.kml'));
+    if (kmlEntries.length === 0) throw new Error('No KML file found in KMZ');
+
+    const docBase = file.name.replace(/\.kmz$/i, '');
+    let allLayers = [];
+
+    for (const entry of kmlEntries) {
+      const text     = await entry.async('string');
+      const dom      = new DOMParser().parseFromString(text, 'text/xml');
+      const partName = entry.name.replace(/^.*[\\/]/, '').replace(/\.kml$/i, '');
+      const subLayers = kmlExtractLayers(dom, partName);
+      allLayers = allLayers.concat(subLayers);
+    }
+
     hideProgress();
-    toast(`Loaded: ${file.name} (${geojson.features.length} features)`, 'success');
+
+    if (allLayers.length === 0) {
+      toast('KMZ appears to be empty', 'error'); return;
+    }
+
+    let toLoad = allLayers;
+    if (allLayers.length > 1) {
+      toLoad = await _showKMLPicker(allLayers, `${docBase} — select layers`);
+    }
+
+    if (!toLoad || toLoad.length === 0) {
+      toast('No layers selected', 'info'); return;
+    }
+
+    toLoad.forEach(l => addLayer(l.geojson, l.name, 'EPSG:4326', 'KMZ'));
+    const total = toLoad.reduce((s, l) => s + l.geojson.features.length, 0);
+    toast(`Loaded ${toLoad.length} layer${toLoad.length !== 1 ? 's' : ''} (${total} features) from ${file.name}`, 'success');
   } catch(err) { hideProgress(); toast(`KMZ error: ${err.message}`, 'error'); }
 }
 
@@ -451,11 +625,10 @@ async function loadZIP(file) {
       try {
         setProgress(20 + Math.round(70*(loadedCount/total)), `KML ${i+1}/${kmlEntries.length}: ${entry.name}`);
         const text = await entry.async('string');
-        const dom = new DOMParser().parseFromString(text, 'text/xml');
-        const geojson = toGeoJSON.kml(dom);
-        // Derive a clean layer name from the file path (strip folders and extension)
-        const layerName = entry.name.replace(/^.*[\/]/, '').replace(/\.kml$/i, '');
-        addLayer(geojson, layerName, 'EPSG:4326', 'KML');
+        const dom  = new DOMParser().parseFromString(text, 'text/xml');
+        const partName = entry.name.replace(/^.*[\/]/, '').replace(/\.kml$/i, '');
+        const layers = kmlExtractLayers(dom, partName);
+        layers.forEach(l => addLayer(l.geojson, l.name, 'EPSG:4326', 'KML'));
         loadedCount++;
       } catch(e) { errors.push(entry.name + ': ' + e.message); }
     }
@@ -570,13 +743,13 @@ function addLayer(geojson, name, sourceCRS, format) {
   (geojson.features||[]).forEach(f => {
     if(f.properties) Object.keys(f.properties).forEach(k=>{ if(!fields[k]) fields[k]=inferType(f.properties[k]); });
   });
-  const normalStyle  = { color, fillColor:color, fillOpacity:0.25, weight:isLine?2.5:1.5, opacity:0.9 };
-  const selectedStyle = { color:'#00ffff', fillColor:color, fillOpacity: 0.25, weight:3, opacity:1 };
-  const hoverStyle   = { fillOpacity:0.4, weight:2.5 };
+  const normalStyle  = { color, fillColor:color, fillOpacity:0.25, weight:isLine?1:2, opacity:0.9 };
+  const selectedStyle = { color:'#00ffff', fillColor:color, fillOpacity: 0.25, weight:isLine?2.5:3, opacity:1 };
+  const hoverStyle   = { fillOpacity:0.4, weight:isLine?1.5:2.5 };
 
   const leafletLayer = L.geoJSON(geojson, {
     style: () => ({ ...normalStyle }),
-    pointToLayer: (feat,latlng) => { const ic = _makePointIcon(color,'#fff',false,'circle',14); return L.marker(latlng,{icon:ic}); },
+    pointToLayer: (feat,latlng) => { const ic = _makePointIcon(color,'#000000',false,'circle',9,0.5); return L.marker(latlng,{icon:ic}); },
     onEachFeature: (feat, sublayer) => {
       const fi = (geojson.features||[]).indexOf(feat);
       const isPoint = feat.geometry?.type.includes('Point');
@@ -622,7 +795,9 @@ function addLayer(geojson, name, sourceCRS, format) {
 
       sublayer.on('mouseover', function() {
         if (!isPoint && !state.selectedFeatureIndices.has(fi)) {
-          this.setStyle({ fillOpacity:0.4, weight:2.5 });
+          const layer = state.layers[idx];
+          const ow = layer && layer.outlineWidth != null ? layer.outlineWidth : (isLine ? 1 : 2);
+          this.setStyle({ fillOpacity:0.4, weight: ow + 0.8 });
         }
       });
       sublayer.on('mouseout', function() {
@@ -676,14 +851,17 @@ function refreshMapSelection(layerIdx) {
     const featureStroke = (classifyColorMap && classifyColorMap.has(fi)) ? classifyColorMap.get(fi) : color;
 
     if (!featureIsPoint) {
-      const normal   = { color: featureStroke, fillColor: featureFill, fillOpacity: noFill ? 0 : 0.25, weight: isLine ? 2.5 : 1.5, opacity: 0.9 };
-      const selected = { color: '#00ffff',     fillColor: featureFill, fillOpacity: noFill ? 0 : 0.25, weight: 3, opacity: 1 };
+      const ow = layer.outlineWidth != null ? layer.outlineWidth : (isLine ? 1 : 2);
+      const normal   = { color: featureStroke, fillColor: featureFill, fillOpacity: noFill ? 0 : 0.25, weight: ow, opacity: 0.9 };
+      const selected = { color: '#00ffff',     fillColor: featureFill, fillOpacity: noFill ? 0 : 0.25, weight: Math.max(ow, 3), opacity: 1 };
       sublayer.setStyle(isSelected ? selected : normal);
     } else {
       if (sublayer.setIcon) {
-        const s = isSelected ? 18 : 14;
-        const outlineCol = isSelected ? '#00ffff' : (layer.outlineColor || featureStroke);
-        sublayer.setIcon(_makePointIcon(featureFill, outlineCol, noFill, layer.pointShape || 'circle', s));
+        const baseSize = layer.pointSize != null ? layer.pointSize : 9;
+        const s = isSelected ? Math.round(baseSize * 1.4) : baseSize;
+        const ow = layer.outlineWidth != null ? layer.outlineWidth : 0.5;
+        const outlineCol = isSelected ? '#00ffff' : (layer.outlineColor || '#000000');
+        sublayer.setIcon(_makePointIcon(featureFill, outlineCol, noFill, layer.pointShape || 'circle', s, ow));
       }
     }
     fi++;
@@ -3747,7 +3925,7 @@ function loadSession() {
 
         const leafletLayer = L.geoJSON(geojson, {
           style: () => ({ color, fillColor: color, fillOpacity: 0.15, weight: 2, opacity: 1 }),
-          pointToLayer: (feat, latlng) => { const ic = _makePointIcon(color, '#fff', false, layer.pointShape||'circle', 14); return L.marker(latlng,{icon:ic}); },
+          pointToLayer: (feat, latlng) => { const ic = _makePointIcon(color, layer.outlineColor||'#000000', false, layer.pointShape||'circle', layer.pointSize!=null?layer.pointSize:9, layer.outlineWidth!=null?layer.outlineWidth:0.5); return L.marker(latlng,{icon:ic}); },
           onEachFeature: (feat, sublayer) => {
             const layerIdx = state.layers.length; // capture at add time — will be correct on click via closure
             const fi = (geojson.features||[]).indexOf(feat);
@@ -4555,7 +4733,10 @@ function openColorPickerForLayer(layerIdx) {
 
   // Sync inputs to current layer styles
   const fillCol = layer.fillColor || layer.color || '#3498db';
-  const outlineCol = layer.outlineColor || layer.color || '#3498db';
+  // For point layers, default outline to black; for others, use layer color
+  const _isPointForPicker = layer.geomType === 'Point' || layer.geomType === 'MultiPoint' ||
+    (layer.geojson && (layer.geojson.features||[]).some(f => f.geometry?.type?.includes('Point')));
+  const outlineCol = layer.outlineColor || (_isPointForPicker ? '#000000' : layer.color || '#3498db');
   const noFill = layer.noFill || false;
 
   document.getElementById('fill-color-custom').value = fillCol;
@@ -4565,7 +4746,11 @@ function openColorPickerForLayer(layerIdx) {
   _updateColorPreview(fillCol, outlineCol, noFill);
 
   // Sync outline width slider
-  const ow = layer.outlineWidth != null ? layer.outlineWidth : 1.5;
+  const isPointLayer2 = layer.geomType === 'Point' || layer.geomType === 'MultiPoint' ||
+    (layer.geojson && (layer.geojson.features||[]).some(f => f.geometry?.type?.includes('Point')));
+  const hasLineGeom = layer.geojson && (layer.geojson.features||[]).some(f => f.geometry?.type?.includes('Line'));
+  const defaultOW = isPointLayer2 ? 0.5 : (hasLineGeom ? 1 : 2);
+  const ow = layer.outlineWidth != null ? layer.outlineWidth : defaultOW;
   const owSlider = document.getElementById('outline-width-slider');
   const owLabel  = document.getElementById('outline-width-label');
   if (owSlider) owSlider.value = ow;
@@ -4589,7 +4774,7 @@ function openColorPickerForLayer(layerIdx) {
       }
     });
     // Sync point size slider
-    const ps = layer.pointSize != null ? layer.pointSize : 14;
+    const ps = layer.pointSize != null ? layer.pointSize : 9;
     const psSlider = document.getElementById('point-size-slider');
     const psLabel  = document.getElementById('point-size-label');
     if (psSlider) psSlider.value = ps;
@@ -4714,10 +4899,7 @@ function applyOutlineWidth(width) {
 function _applySymbologyToLeaflet(layer) {
   if (!layer.leafletLayer || layer.isTile) return;
   const fillCol    = layer.fillColor    || layer.color;
-  const outlineCol = layer.outlineColor || layer.color;
   const noFill     = layer.noFill || false;
-  const shape      = layer.pointShape || 'circle';
-  const outlineW   = layer.outlineWidth != null ? layer.outlineWidth : 1.5;
 
   // Check if any features are points
   const features = layer.geojson?.features || [];
@@ -4729,12 +4911,14 @@ function _applySymbologyToLeaflet(layer) {
     // Pure point layer — rebuild markers with new shape/colour/size
     _rebuildPointMarkers(layer);
   } else {
-    // Non-point layer — use setStyle
+    // Non-point layer — use setStyle with correct defaults (polygon=2, line=1)
+    const outlineCol = layer.outlineColor || layer.color;
+    const defaultWeight = hasLine ? 1 : 2;
     layer.leafletLayer.setStyle({
       color: outlineCol,
       fillColor: fillCol,
       fillOpacity: noFill ? 0 : 0.25,
-      weight: outlineW
+      weight: layer.outlineWidth != null ? layer.outlineWidth : defaultWeight
     });
   }
   updateLayerList();
@@ -4774,11 +4958,11 @@ function _makePointIcon(fillCol, outlineCol, noFill, shape, size, outlineWidth) 
 function _rebuildPointMarkers(layer) {
   if (!layer.leafletLayer) return;
   const fillCol    = layer.fillColor    || layer.color;
-  const outlineCol = layer.outlineColor || layer.color;
+  const outlineCol = layer.outlineColor || '#000000';
   const noFill     = layer.noFill || false;
   const shape      = layer.pointShape || 'circle';
-  const size       = layer.pointSize   != null ? layer.pointSize   : 14;
-  const outlineW   = layer.outlineWidth != null ? layer.outlineWidth : null; // null = auto from size
+  const size       = layer.pointSize   != null ? layer.pointSize   : 9;
+  const outlineW   = layer.outlineWidth != null ? layer.outlineWidth : 0.5;
   layer.leafletLayer.eachLayer(function(sub) {
     if (sub.setIcon) {
       sub.setIcon(_makePointIcon(fillCol, outlineCol, noFill, shape, size, outlineW));
@@ -6528,13 +6712,16 @@ function applyClassify() {
       const val = feat.properties?.[field];
       const cls = classes.find(c => c.test(val));
       const col = cls ? cls.color : '#888888';
-      return { color: col, fillColor: col, fillOpacity: 0.4, weight: isLine ? 2.5 : 1.5, opacity: 0.9 };
+      const ow = layer.outlineWidth != null ? layer.outlineWidth : (isLine ? 1 : 2);
+      return { color: col, fillColor: col, fillOpacity: 0.4, weight: ow, opacity: 0.9 };
     },
     pointToLayer: (feat, latlng) => {
       const val = feat.properties?.[field];
       const cls = classes.find(c => c.test(val));
       const col = cls ? cls.color : '#888888';
-      const ic = _makePointIcon(col, '#fff', false, layer.pointShape || 'circle', 14);
+      const ps  = layer.pointSize   != null ? layer.pointSize   : 9;
+      const ow  = layer.outlineWidth != null ? layer.outlineWidth : 0.5;
+      const ic = _makePointIcon(col, layer.outlineColor || '#000000', false, layer.pointShape || 'circle', ps, ow);
       return L.marker(latlng, { icon: ic });
     },
     onEachFeature: (feat, sub) => {
@@ -6572,8 +6759,16 @@ function resetLayerSymbology() {
   const color = layer.color;
   const isLine = layer.geomType?.includes('Line');
   const newL = L.geoJSON(layer.geojson, {
-    style: () => ({ color: layer.outlineColor||color, fillColor: layer.fillColor||color, fillOpacity: layer.noFill?0:0.25, weight: isLine?2.5:1.5, opacity:0.9 }),
-    pointToLayer: (feat,latlng) => { const ic=_makePointIcon(layer.fillColor||color,layer.outlineColor||'#fff',layer.noFill||false,layer.pointShape||'circle',14);return L.marker(latlng,{icon:ic}); },
+    style: () => {
+      const ow = layer.outlineWidth != null ? layer.outlineWidth : (isLine ? 1 : 2);
+      return { color: layer.outlineColor||color, fillColor: layer.fillColor||color, fillOpacity: layer.noFill?0:0.25, weight: ow, opacity:0.9 };
+    },
+    pointToLayer: (feat,latlng) => {
+      const ps = layer.pointSize   != null ? layer.pointSize   : 9;
+      const ow = layer.outlineWidth != null ? layer.outlineWidth : 0.5;
+      const ic = _makePointIcon(layer.fillColor||color, layer.outlineColor||'#000000', layer.noFill||false, layer.pointShape||'circle', ps, ow);
+      return L.marker(latlng,{icon:ic});
+    },
     onEachFeature: (feat, sub) => {
       const fi=(layer.geojson.features||[]).indexOf(feat);
       sub.on('click',e=>{
@@ -7171,11 +7366,15 @@ function _rebuildLeafletLayer(layerIdx) {
   }
 
   // Rebuild with same event listeners (simplified — no per-feature click for rebuilt editable layers)
+  const isLine = layer.geomType?.includes('Line');
+  const ow = layer.outlineWidth != null ? layer.outlineWidth : (isLine ? 1 : 2);
   const newLeaflet = L.geoJSON(layer.geojson, {
-    style: () => ({ color, fillColor: fillC, fillOpacity: noFill ? 0 : 0.2, weight: 2, opacity: 1 }),
-    pointToLayer: (feat, latlng) => L.circleMarker(latlng, {
-      radius: 7, fillColor: fillC, color: '#fff', weight: 2, opacity: 1, fillOpacity: 0.9
-    }),
+    style: () => ({ color, fillColor: fillC, fillOpacity: noFill ? 0 : 0.2, weight: ow, opacity: 1 }),
+    pointToLayer: (feat, latlng) => {
+      const ps = layer.pointSize   != null ? layer.pointSize   : 9;
+      const pw = layer.outlineWidth != null ? layer.outlineWidth : 0.5;
+      return L.marker(latlng, { icon: _makePointIcon(fillC, layer.outlineColor||'#000000', noFill, layer.pointShape||'circle', ps, pw) });
+    },
     onEachFeature: (feat, sublayer) => {
       const fi = (layer.geojson.features || []).indexOf(feat);
       sublayer.on('click', function(e) {

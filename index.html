@@ -56,7 +56,7 @@
 <!-- CLASSIFY SYMBOLOGY MODAL -->
 <div id="classify-backdrop" class="modal-backdrop" onclick="if(event.target===this)this.classList.remove('open')">
   <div style="background:var(--bg2);border-radius:10px;width:480px;max-width:calc(100vw - 32px);max-height:85vh;display:flex;flex-direction:column;box-shadow:0 8px 40px rgba(0,0,0,0.25);overflow:hidden;">
-    <div style="background:linear-gradient(135deg,#0C2E44,#113c64);border-bottom:2px solid #14b1e7;padding:12px 18px;display:flex;align-items:center;justify-content:space-between;flex-shrink:0;">
+    <div style="background:#0e1f2d;border-bottom:1px solid rgba(20,177,231,0.25);padding:12px 18px;display:flex;align-items:center;justify-content:space-between;flex-shrink:0;">
       <span style="font-family:var(--mono);font-weight:700;font-size:12px;color:#e8f4fb;letter-spacing:1px;">🎨 Classify Symbology</span>
       <span style="cursor:pointer;color:#7a96aa;font-size:16px;" onclick="document.getElementById('classify-backdrop').classList.remove('open')">✕</span>
     </div>
@@ -119,7 +119,7 @@
 <!-- FIELD CALCULATOR MODAL -->
 <div id="fieldcalc-backdrop" class="modal-backdrop" onclick="if(event.target===this)this.classList.remove('open')">
   <div style="background:var(--bg2);border-radius:10px;width:500px;max-width:calc(100vw - 32px);max-height:85vh;display:flex;flex-direction:column;box-shadow:0 8px 40px rgba(0,0,0,0.25);overflow:hidden;">
-    <div style="background:linear-gradient(135deg,#0C2E44,#113c64);border-bottom:2px solid #14b1e7;padding:12px 18px;display:flex;align-items:center;justify-content:space-between;flex-shrink:0;">
+    <div style="background:#0e1f2d;border-bottom:1px solid rgba(20,177,231,0.25);padding:12px 18px;display:flex;align-items:center;justify-content:space-between;flex-shrink:0;">
       <span style="font-family:var(--mono);font-weight:700;font-size:12px;color:#e8f4fb;letter-spacing:1px;">ƒ Field Calculator</span>
       <span style="cursor:pointer;color:#7a96aa;font-size:16px;" onclick="document.getElementById('fieldcalc-backdrop').classList.remove('open')">✕</span>
     </div>
@@ -429,24 +429,24 @@
 
 <!-- ══ ABOUT MODAL ══ -->
 <div id="about-backdrop" class="modal-backdrop" onclick="if(event.target===this)this.classList.remove('open')">
-  <div style="background:#fff;border-radius:10px;width:520px;max-width:calc(100vw - 32px);max-height:80vh;
+  <div style="background:var(--bg2);border-radius:10px;width:520px;max-width:calc(100vw - 32px);max-height:80vh;
               display:flex;flex-direction:column;box-shadow:0 8px 40px rgba(0,0,0,0.25);overflow:hidden;">
     <!-- Header -->
-    <div style="background:linear-gradient(135deg,#0C2E44,#113c64);border-bottom:2px solid #14b1e7;
+    <div style="background:#0e1f2d;border-bottom:1px solid rgba(20,177,231,0.25);
                 padding:14px 18px;display:flex;align-items:center;justify-content:space-between;flex-shrink:0;">
-      <div style="font-family:'IBM Plex Mono',monospace;font-weight:700;font-size:13px;color:#e8f4fb;letter-spacing:1px;">
+      <div style="font-family:'JetBrains Mono',monospace;font-weight:700;font-size:13px;color:#e8f4fb;letter-spacing:1px;">
         Gaia <span style="color:#14b1e7;">v1.0</span> — GIS Data Inspector
       </div>
       <span style="cursor:pointer;color:#7a96aa;font-size:16px;" onclick="document.getElementById('about-backdrop').classList.remove('open')">✕</span>
     </div>
     <!-- Scrollable body -->
-    <div style="overflow-y:auto;padding:20px 22px;font-family:'IBM Plex Mono',monospace;font-size:11px;line-height:1.75;color:#3a5068;">
+    <div style="overflow-y:auto;padding:20px 22px;font-family:'JetBrains Mono',monospace;font-size:11px;line-height:1.75;color:#3a5068;">
 
-      <p style="margin:0 0 14px;font-size:12px;color:#2c3e50;font-weight:600;">
-        A portable, browser-based GIS viewer built for the <a href="https://umwelt.com.au/" target="_blank" rel="noopener noreferrer" style="color:#0074a8;text-decoration:none;">Umwelt</a> team.
+      <p style="margin:0 0 14px;font-size:12px;color:var(--text);font-weight:600;">
+        A portable, browser-based GIS viewer built for the <a href="https://umwelt.com.au/" target="_blank" rel="noopener noreferrer" style="color:var(--accent);text-decoration:none;">Umwelt</a> team.
       </p>
 
-      <h3 style="font-size:10px;text-transform:uppercase;letter-spacing:1px;color:#0074a8;margin:0 0 6px;border-bottom:1px solid #d8dfe6;padding-bottom:4px;">Loading Data</h3>
+      <h3 style="font-size:10px;text-transform:uppercase;letter-spacing:1px;color:var(--accent);margin:0 0 6px;border-bottom:1px solid var(--border);padding-bottom:4px;">Loading Data</h3>
       <p style="margin:0 0 10px;">Drag files directly onto the map, or use the <strong>Load Data</strong> panel on the left. Supported formats:</p>
       <ul style="margin:0 0 12px;padding-left:18px;">
         <li><strong>Shapefile</strong> — drop the .shp, .dbf, .prj files together (or as a ZIP)</li>
@@ -457,7 +457,7 @@
         <li><strong>.gaia</strong> — Gaia session export file; restores all layers and symbology</li>
       </ul>
 
-      <h3 style="font-size:10px;text-transform:uppercase;letter-spacing:1px;color:#0074a8;margin:0 0 6px;border-bottom:1px solid #d8dfe6;padding-bottom:4px;">Add Layer from URL</h3>
+      <h3 style="font-size:10px;text-transform:uppercase;letter-spacing:1px;color:var(--accent);margin:0 0 6px;border-bottom:1px solid var(--border);padding-bottom:4px;">Add Layer from URL</h3>
       <p style="margin:0 0 10px;">Click <strong>+ Add Layer from URL</strong> to connect to web services:</p>
       <ul style="margin:0 0 12px;padding-left:18px;">
         <li><strong>Catalogue</strong> — your team's saved service list. Place <code>catalogue.csv</code> alongside <code>index.html</code> to auto-populate it</li>
@@ -467,7 +467,7 @@
         <li><strong>GeoJSON URL</strong> — any public endpoint returning GeoJSON</li>
       </ul>
 
-      <h3 style="font-size:10px;text-transform:uppercase;letter-spacing:1px;color:#0074a8;margin:0 0 6px;border-bottom:1px solid #d8dfe6;padding-bottom:4px;">Attribute Table</h3>
+      <h3 style="font-size:10px;text-transform:uppercase;letter-spacing:1px;color:var(--accent);margin:0 0 6px;border-bottom:1px solid var(--border);padding-bottom:4px;">Attribute Table</h3>
       <p style="margin:0 0 10px;">Open via the panel or through a layer's context menu (⋯ → Open Attribute Table).</p>
       <ul style="margin:0 0 12px;padding-left:18px;">
         <li><strong>Resize columns</strong> — drag the right edge of any column header</li>
@@ -479,17 +479,17 @@
         <li><strong>Multi-select</strong> — Ctrl+click or Shift+click features on the map or in the table</li>
       </ul>
 
-      <h3 style="font-size:10px;text-transform:uppercase;letter-spacing:1px;color:#0074a8;margin:0 0 6px;border-bottom:1px solid #d8dfe6;padding-bottom:4px;">Symbology &amp; Classification</h3>
+      <h3 style="font-size:10px;text-transform:uppercase;letter-spacing:1px;color:var(--accent);margin:0 0 6px;border-bottom:1px solid var(--border);padding-bottom:4px;">Symbology &amp; Classification</h3>
       <p style="margin:0 0 10px;">Click the geometry icon (●/—/⬡) on any layer to open the symbology picker — set fill colour, outline colour, and point shape. Use <strong>Classify</strong> to colour by field values using Unique Values, Equal Interval, or Quantile methods.</p>
 
-      <h3 style="font-size:10px;text-transform:uppercase;letter-spacing:1px;color:#0074a8;margin:0 0 6px;border-bottom:1px solid #d8dfe6;padding-bottom:4px;">Exporting Data</h3>
+      <h3 style="font-size:10px;text-transform:uppercase;letter-spacing:1px;color:var(--accent);margin:0 0 6px;border-bottom:1px solid var(--border);padding-bottom:4px;">Exporting Data</h3>
       <ul style="margin:0 0 12px;padding-left:18px;">
         <li><strong>Export layer</strong> — use the ↓ Export panel to download as GeoJSON, KML, CSV, or WKT; reproject to GDA94, GDA2020, or MGA zones first if needed</li>
         <li><strong>Export Session</strong> — header button (📤) downloads a <code>.gaia</code> file capturing all layers, symbology, and settings; drag it back in to restore</li>
         <li><strong>Export PNG</strong> — saves the current map view as a georeferenced PNG with title, legend, and Umwelt footer</li>
       </ul>
 
-      <h3 style="font-size:10px;text-transform:uppercase;letter-spacing:1px;color:#0074a8;margin:0 0 6px;border-bottom:1px solid #d8dfe6;padding-bottom:4px;">Other Tools</h3>
+      <h3 style="font-size:10px;text-transform:uppercase;letter-spacing:1px;color:var(--accent);margin:0 0 6px;border-bottom:1px solid var(--border);padding-bottom:4px;">Other Tools</h3>
       <ul style="margin:0 0 12px;padding-left:18px;">
         <li><strong>Measure</strong> — measure distances and areas via the Widgets panel</li>
         <li><strong>Buffer</strong> — create buffer polygons around selected features</li>
@@ -500,14 +500,34 @@
         <li><strong>CRS display</strong> — switch the coordinate readout between WGS84, GDA94/2020, and MGA zones via the bottom bar</li>
       </ul>
 
-      <div style="margin-top:16px;padding:10px 12px;background:#edf0f3;border-radius:6px;font-size:10px;color:#607d8b;line-height:1.6;">
-        Built by <a href="https://umwelt.com.au/" target="_blank" rel="noopener noreferrer" style="color:#0074a8;text-decoration:none;">Umwelt</a> · Powered by Leaflet, Proj4js, SheetJS, shapefile.js, toGeoJSON, JSZip
+      <div style="margin-top:16px;padding:10px 12px;background:#edf0f3;border-radius:6px;font-size:10px;color:var(--text3);line-height:1.6;">
+        Built by <a href="https://umwelt.com.au/" target="_blank" rel="noopener noreferrer" style="color:var(--accent);text-decoration:none;">Umwelt</a> · Powered by Leaflet, Proj4js, SheetJS, shapefile.js, toGeoJSON, JSZip
       </div>
     </div>
   </div>
 </div>
 
 </div><!-- #app -->
+
+<!-- KML / KMZ LAYER PICKER MODAL -->
+<div id="kml-pick-backdrop" class="modal-backdrop" onclick="if(event.target===this)cancelKMLPick()">
+  <div style="background:var(--bg2);border-radius:var(--radius);width:520px;max-width:calc(100vw - 32px);max-height:85vh;display:flex;flex-direction:column;box-shadow:var(--shadow-lg);overflow:hidden;">
+    <div style="background:#0e1f2d;border-bottom:1px solid rgba(20,177,231,0.25);padding:12px 18px;display:flex;align-items:center;justify-content:space-between;flex-shrink:0;">
+      <span style="font-family:var(--mono);font-weight:600;font-size:12px;color:#e8f4fb;letter-spacing:0.5px;" id="kml-pick-title">📂 Select Layers to Load</span>
+      <span style="cursor:pointer;color:var(--text3);font-size:16px;line-height:1;" onclick="cancelKMLPick()">✕</span>
+    </div>
+    <div style="padding:10px 14px;border-bottom:1px solid var(--border);background:var(--bg3);display:flex;align-items:center;gap:8px;flex-shrink:0;">
+      <button class="btn btn-ghost btn-sm" onclick="kmlPickSelectAll()">☑ Select All</button>
+      <button class="btn btn-ghost btn-sm" onclick="kmlPickSelectNone()">☐ Select None</button>
+      <span id="kml-pick-count" style="font-family:var(--mono);font-size:10px;color:var(--text3);margin-left:auto;"></span>
+    </div>
+    <div id="kml-pick-list" style="overflow-y:auto;padding:8px 14px;flex:1;display:flex;flex-direction:column;gap:4px;"></div>
+    <div style="padding:12px 14px;border-top:1px solid var(--border);display:flex;gap:8px;justify-content:flex-end;flex-shrink:0;background:var(--bg2);">
+      <button class="btn btn-ghost btn-sm" onclick="cancelKMLPick()">Cancel</button>
+      <button class="btn btn-primary btn-sm" onclick="confirmKMLPick()">Load Selected</button>
+    </div>
+  </div>
+</div>
 
 <!-- FLOATING EXPORT PANEL -->
 <div id="export-float">
@@ -590,7 +610,7 @@
 </div>
 
 <!-- LABELLING POPUP -->
-<div id="labelling-popup" style="display:none;position:fixed;z-index:9900;background:#fff;border:1px solid var(--border);border-radius:7px;box-shadow:0 4px 18px rgba(0,0,0,0.18);padding:8px;width:200px;">
+<div id="labelling-popup" style="display:none;position:fixed;z-index:9900;background:var(--bg2);border:1px solid var(--border);border-radius:8px;box-shadow:var(--shadow);padding:8px;width:200px;">
   <div style="font-family:var(--mono);font-size:8px;font-weight:700;color:#2c3e50;letter-spacing:1px;text-transform:uppercase;margin-bottom:7px;padding-bottom:5px;border-bottom:1px solid var(--border);display:flex;align-items:center;justify-content:space-between;">
     <span>🏷 Labelling</span>
     <span style="cursor:pointer;opacity:0.5;font-size:11px;" onclick="closeLabellingModal()" title="Close">✕</span>
@@ -627,12 +647,12 @@
 
   <!-- Apply -->
   <div style="padding-top:6px;border-top:1px solid var(--border);">
-    <button onclick="applyLabelling()" style="width:100%;padding:5px;background:#0074a8;color:#fff;border:none;border-radius:4px;font-family:var(--mono);font-size:9px;font-weight:700;cursor:pointer;letter-spacing:0.5px;">Apply</button>
+    <button onclick="applyLabelling()" style="width:100%;padding:5px;background:var(--accent);color:#fff;border:none;border-radius:5px;font-family:var(--mono);font-size:9px;font-weight:700;cursor:pointer;letter-spacing:0.5px;">Apply</button>
   </div>
 </div>
 
 <!-- COLOUR PICKER POPUP -->
-<div id="color-picker-popup" style="display:none;position:fixed;z-index:9900;background:#fff;border:1px solid var(--border);border-radius:7px;box-shadow:0 4px 18px rgba(0,0,0,0.18);padding:8px;width:200px;">
+<div id="color-picker-popup" style="display:none;position:fixed;z-index:9900;background:var(--bg2);border:1px solid var(--border);border-radius:8px;box-shadow:var(--shadow);padding:8px;width:200px;">
   <div style="font-family:var(--mono);font-size:8px;font-weight:700;color:#2c3e50;letter-spacing:1px;text-transform:uppercase;margin-bottom:7px;padding-bottom:5px;border-bottom:1px solid var(--border);display:flex;align-items:center;justify-content:space-between;">
     <span>Symbology</span>
     <span style="cursor:pointer;opacity:0.5;font-size:11px;" onclick="closeColorPicker()" title="Close">✕</span>
@@ -683,7 +703,7 @@
   <div style="margin-bottom:6px;padding-top:6px;border-top:1px solid var(--border);">
     <div style="display:flex;align-items:center;justify-content:space-between;margin-bottom:4px;">
       <div style="font-family:var(--mono);font-size:8px;font-weight:600;color:var(--text3);text-transform:uppercase;letter-spacing:0.5px;">Outline Width</div>
-      <span id="outline-width-label" style="font-family:var(--mono);font-size:9px;color:var(--sky);font-weight:600;">1.5px</span>
+      <span id="outline-width-label" style="font-family:var(--mono);font-size:9px;color:var(--sky);font-weight:600;">0.5px</span>
     </div>
     <input type="range" id="outline-width-slider" min="0" max="10" step="0.5" value="1.5"
       style="width:100%;cursor:pointer;"
