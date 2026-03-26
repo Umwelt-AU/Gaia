@@ -989,6 +989,7 @@
       <div class="widget-tab active" onclick="switchWidgetTab('measure')" id="wt-measure">📏 Measure</div>
       <div class="widget-tab" onclick="switchWidgetTab('sbl')" id="wt-sbl">📍 Select</div>
       <div class="widget-tab" onclick="switchWidgetTab('buffer')" id="wt-buffer">⬡ Buffer</div>
+      <div class="widget-tab" onclick="switchWidgetTab('designqa')" id="wt-designqa">✅ Design QA</div>
     </div>
 
     <!-- MEASURE PANE -->
@@ -1068,6 +1069,22 @@
       </div>
       <button class="btn btn-primary btn-full" onclick="runWidgetBuffer()" style="font-size:9px;">⬡ Create Buffer Layer</button>
       <div id="wbuffer-result" style="font-family:var(--mono);font-size:10px;color:var(--accent);padding:4px 6px;background:var(--bg);border:1px solid var(--border);border-radius:4px;margin-top:6px;display:none;"></div>
+    </div>
+
+    <!-- DESIGN QA PANE -->
+    <div class="widget-pane" id="wp-designqa">
+      <div style="margin-bottom:6px;">
+        <label style="font-size:9px;color:var(--text3);display:block;margin-bottom:3px;font-family:var(--mono);letter-spacing:0.5px;text-transform:uppercase;">Project Boundary / Disturbance Area</label>
+        <select id="dqa-boundary-select"><option value="">— select polygon layer —</option></select>
+      </div>
+      <div style="margin-bottom:8px;">
+        <label style="font-size:9px;color:var(--text3);display:block;margin-bottom:3px;font-family:var(--mono);letter-spacing:0.5px;text-transform:uppercase;">Design Layers to Analyse</label>
+        <div id="dqa-layers-list" style="max-height:120px;overflow-y:auto;border:1px solid var(--border);border-radius:4px;padding:4px 6px;background:var(--bg);font-size:10px;color:var(--text2);">
+          <em style="color:var(--text3);">Load vector layers first</em>
+        </div>
+      </div>
+      <button class="btn btn-primary btn-full" onclick="runDesignQA()" style="font-size:9px;margin-bottom:6px;">✅ Run Design QA</button>
+      <div id="dqa-result" style="display:none;margin-top:6px;"></div>
     </div>
 
   </div>

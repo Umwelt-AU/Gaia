@@ -812,7 +812,7 @@ function addLayer(geojson, name, sourceCRS, format) {
   // New layers go to top of list (index 0) — refresh z-order
   setTimeout(refreshLayerZOrder, 50);
   state.layers.push({ geojson, name, sourceCRS, format, color, fields, geomType, leafletLayer, visible:true, layerOpacity:1 });
-  updateLayerList(); updateExportLayerList(); updateSBLLayerList(); setActiveLayer(idx);
+  updateLayerList(); updateExportLayerList(); updateSBLLayerList(); updateDQALayerList(); setActiveLayer(idx);
   _updateEmptyState();
   try { state.map.fitBounds(leafletLayer.getBounds(), {padding:[30,30]}); } catch(e){}
 }
@@ -985,7 +985,7 @@ function handleLayerDrop(e, i) {
   const layersReversed = [...state.layers].reverse();
   layersReversed.forEach(l => { if (l.visible && l.leafletLayer) { state.map.removeLayer(l.leafletLayer); l.leafletLayer.addTo(state.map); } });
 
-  updateLayerList(); updateExportLayerList(); updateSBLLayerList();
+  updateLayerList(); updateExportLayerList(); updateSBLLayerList(); updateDQALayerList();
 }
 
 function handleLayerDragEnd(e) {
@@ -1684,7 +1684,7 @@ function updateExportLayerList(){
   sel.innerHTML=state.layers.map((l,i)=>`<option value="${i}">${l.name}</option>`).join('');
   sel.value=state.activeLayerIndex>=0?state.activeLayerIndex:0;
   updateAttrLayerSelect();
-  updateSBLLayerList();
+  updateSBLLayerList(); updateDQALayerList();
 }
 // exportData defined below
 
@@ -2190,7 +2190,7 @@ document.addEventListener('DOMContentLoaded', function() {
   const origUpdate = window.updateExportLayerList;
   window.updateExportLayerList = function() {
     if (origUpdate) origUpdate();
-    updateSBLLayerList();
+    updateSBLLayerList(); updateDQALayerList();
   };
   // SBL method toggle for radius row
   const sblMethod = document.getElementById('sbl-method');
@@ -2492,12 +2492,13 @@ function toggleWidgetPanel() {
 }
 
 function switchWidgetTab(tab) {
-  ['measure','sbl','buffer'].forEach(t => {
+  ['measure','sbl','buffer','designqa'].forEach(t => {
     const tabEl = document.getElementById('wt-' + t);
     const paneEl = document.getElementById('wp-' + t);
     if (tabEl) tabEl.classList.toggle('active', t === tab);
     if (paneEl) paneEl.classList.toggle('visible', t === tab);
   });
+  if (tab === 'designqa') updateDQALayerList();
 }
 
 function makePanelDraggable(panel, handle) {
@@ -2628,7 +2629,7 @@ function ctxRenameLayer() {
   const newName = prompt('Rename layer:', layer.name);
   if (newName && newName.trim() && newName.trim() !== layer.name) {
     layer.name = newName.trim();
-    updateLayerList(); updateExportLayerList(); updateAttrLayerSelect(); updateSBLLayerList();
+    updateLayerList(); updateExportLayerList(); updateAttrLayerSelect(); updateSBLLayerList(); updateDQALayerList();
     toast('Layer renamed to "' + layer.name + '"', 'success');
   }
 }
@@ -3637,6 +3638,229 @@ function runWidgetBuffer() {
 }
 
 // ══════════════════════════════════════════════════════════
+//  DESIGN QA WIDGET
+// ══════════════════════════════════════════════════════════
+
+function updateDQALayerList() {
+  const boundarySelect = document.getElementById('dqa-boundary-select');
+  const layersList = document.getElementById('dqa-layers-list');
+  if (!boundarySelect || !layersList) return;
+
+  const vecLayers = state.layers.filter(l => !l.isTile);
+
+  // Populate boundary dropdown (polygon layers preferred, but show all vector)
+  const prevBoundary = boundarySelect.value;
+  boundarySelect.innerHTML = '<option value="">— select polygon layer —</option>';
+  vecLayers.forEach((l, i) => {
+    const idx = state.layers.indexOf(l);
+    const opt = document.createElement('option');
+    opt.value = idx;
+    opt.textContent = l.name + (l.geomType && l.geomType.toLowerCase().includes('polygon') ? ' ✦' : '');
+    boundarySelect.appendChild(opt);
+  });
+  if (prevBoundary !== '' && boundarySelect.querySelector(`option[value="${prevBoundary}"]`)) {
+    boundarySelect.value = prevBoundary;
+  }
+
+  // Populate design layers checklist
+  if (!vecLayers.length) {
+    layersList.innerHTML = '<em style="color:var(--text3);">Load vector layers first</em>';
+    return;
+  }
+  layersList.innerHTML = vecLayers.map(l => {
+    const idx = state.layers.indexOf(l);
+    return `<label style="display:flex;align-items:center;gap:5px;padding:2px 0;cursor:pointer;">
+      <input type="checkbox" class="dqa-layer-cb" value="${idx}" style="margin:0;"/>
+      <span style="font-size:10px;color:var(--text2);">${l.name}</span>
+    </label>`;
+  }).join('');
+}
+
+
+// Get outer rings as flat [lng,lat] arrays from any polygon/multipolygon feature
+function _outerRings(feat) {
+  if (!feat || !feat.geometry) return [];
+  const t = feat.geometry.type, c = feat.geometry.coordinates;
+  if (t === 'Polygon') return [c[0]];
+  if (t === 'MultiPolygon') return c.map(p => p[0]);
+  return [];
+}
+
+// Test whether a [lng, lat] point is inside a ring (array of [lng,lat])
+function _ptInRing(lng, lat, ring) {
+  let inside = false;
+  const n = ring.length;
+  for (let i = 0, j = n - 1; i < n; j = i++) {
+    const xi = ring[i][0], yi = ring[i][1];
+    const xj = ring[j][0], yj = ring[j][1];
+    if (((yi > lat) !== (yj > lat)) && (lng < (xj - xi) * (lat - yi) / (yj - yi) + xi)) {
+      inside = !inside;
+    }
+  }
+  return inside;
+}
+
+// Centroid of a ring ([lng,lat] array) — simple average of vertices
+function _ringCentroid(ring) {
+  const cx = ring.reduce((s, p) => s + p[0], 0) / ring.length;
+  const cy = ring.reduce((s, p) => s + p[1], 0) / ring.length;
+  return [cx, cy];
+}
+
+// Area of a flat ring in sq metres using shoelace + midlat scaling
+function _ringAreaSqm(ring) {
+  if (!ring || ring.length < 3) return 0;
+  const R = 6371000;
+  const toRad = d => d * Math.PI / 180;
+  const midLat = ring.reduce((s, p) => s + p[1], 0) / ring.length;
+  const mPerDegLat = R * Math.PI / 180;
+  const mPerDegLng = mPerDegLat * Math.cos(toRad(midLat));
+  let area = 0;
+  const n = ring.length;
+  for (let i = 0, j = n - 1; i < n; j = i++) {
+    const x1 = ring[i][0] * mPerDegLng, y1 = ring[i][1] * mPerDegLat;
+    const x2 = ring[j][0] * mPerDegLng, y2 = ring[j][1] * mPerDegLat;
+    area += x1 * y2 - x2 * y1;
+  }
+  return Math.abs(area / 2);
+}
+
+// Is ANY representative point of a feature inside ANY boundary ring?
+function _featInsideBoundary(feat, boundaryRings) {
+  if (!feat || !feat.geometry) return false;
+  const t = feat.geometry.type, c = feat.geometry.coordinates;
+  let testPts = [];
+  if (t === 'Point') testPts = [c];
+  else if (t === 'MultiPoint') testPts = c;
+  else if (t === 'LineString') testPts = c;
+  else if (t === 'MultiLineString') testPts = c.reduce((a, l) => a.concat(l), []);
+  else if (t === 'Polygon') testPts = [_ringCentroid(c[0])];
+  else if (t === 'MultiPolygon') testPts = c.map(poly => _ringCentroid(poly[0]));
+  return testPts.some(p => boundaryRings.some(br => _ptInRing(p[0], p[1], br)));
+}
+
+function runDesignQA() {
+  const boundaryIdx = parseInt(document.getElementById('dqa-boundary-select').value);
+  if (isNaN(boundaryIdx) || !state.layers[boundaryIdx]) {
+    toast('Select a Project Boundary layer first', 'error'); return;
+  }
+  const checkedBoxes = [...document.querySelectorAll('.dqa-layer-cb:checked')];
+  if (!checkedBoxes.length) {
+    toast('Select at least one Design Layer to analyse', 'error'); return;
+  }
+
+  const boundaryLayer = state.layers[boundaryIdx];
+  const boundaryRings = [];
+  for (const feat of (boundaryLayer.geojson.features || [])) {
+    _outerRings(feat).forEach(r => boundaryRings.push(r));
+  }
+  if (!boundaryRings.length) {
+    toast('Boundary layer has no polygon geometry', 'error'); return;
+  }
+
+  const rows = [];
+
+  checkedBoxes.forEach(cb => {
+    const layerIdx = parseInt(cb.value);
+    const layer = state.layers[layerIdx];
+    if (!layer || layer.isTile) return;
+
+    const features = (layer.geojson.features || []).filter(f => f && f.geometry);
+    if (!features.length) return;
+
+    const geomTypes = new Set(features.map(f => f.geometry.type));
+    const hasPolygons = [...geomTypes].some(t => t.includes('Polygon'));
+
+    let totalArea = 0, insideArea = 0, outsideArea = 0;
+    let totalCount = 0, insideCount = 0, outsideCount = 0;
+
+    features.forEach(feat => {
+      totalCount++;
+      const inside = _featInsideBoundary(feat, boundaryRings);
+
+      if (hasPolygons) {
+        // Sum area per outer ring, attributed by centroid test
+        _outerRings(feat).forEach(ring => {
+          const a = _ringAreaSqm(ring);
+          totalArea += a;
+          if (inside) insideArea += a; else outsideArea += a;
+        });
+      }
+
+      if (inside) insideCount++; else outsideCount++;
+    });
+
+    const pctOutside = totalCount > 0
+      ? (hasPolygons && totalArea > 0 ? (outsideArea / totalArea * 100) : (outsideCount / totalCount * 100))
+      : 0;
+    const pctInside = 100 - pctOutside;
+
+    rows.push({ name: layer.name, hasPolygons, totalArea, insideArea, outsideArea, pctInside, pctOutside, totalCount, insideCount, outsideCount });
+  });
+
+  if (!rows.length) { toast('No features found in selected layers', 'info'); return; }
+
+  const resultEl = document.getElementById('dqa-result');
+  resultEl.style.display = 'block';
+
+  const tblStyle = 'width:100%;border-collapse:collapse;font-family:var(--mono);font-size:9px;';
+  const thStyle = 'padding:3px 5px;background:var(--bg3);border:1px solid var(--border);color:var(--text3);text-align:left;white-space:nowrap;';
+  const tdStyle = 'padding:3px 5px;border:1px solid var(--border);color:var(--text2);white-space:nowrap;';
+  const tdWarnStyle = tdStyle + 'color:var(--orange);font-weight:600;';
+  const tdOkStyle = tdStyle + 'color:var(--accent);';
+
+  let html = `<div style="font-size:9px;font-family:var(--mono);color:var(--text3);margin-bottom:4px;letter-spacing:0.5px;text-transform:uppercase;">
+    Boundary: <span style="color:var(--accent);">${boundaryLayer.name}</span>
+  </div>
+  <div style="overflow-x:auto;">
+  <table style="${tblStyle}">
+    <thead>
+      <tr>
+        <th style="${thStyle}">Layer</th>
+        <th style="${thStyle}">Total</th>
+        <th style="${thStyle}">Inside</th>
+        <th style="${thStyle}">Outside</th>
+        <th style="${thStyle}">Area Inside</th>
+        <th style="${thStyle}">Area Outside</th>
+        <th style="${thStyle}">% Outside</th>
+      </tr>
+    </thead>
+    <tbody>`;
+
+  rows.forEach(r => {
+    const hasOut = r.outsideCount > 0;
+    const cntTd = hasOut ? tdWarnStyle : tdOkStyle;
+    const areaTd = r.outsideArea > 0 ? tdWarnStyle : tdOkStyle;
+    const pctTd = r.pctOutside > 0.05 ? tdWarnStyle : tdOkStyle;
+    html += `<tr>
+      <td style="${tdStyle}">${r.name}</td>
+      <td style="${tdStyle}">${r.totalCount}</td>
+      <td style="${tdStyle}">${r.insideCount}</td>
+      <td style="${cntTd}">${r.outsideCount}</td>
+      <td style="${tdStyle}">${r.hasPolygons ? fmtArea(r.insideArea) : '—'}</td>
+      <td style="${r.hasPolygons ? areaTd : tdStyle}">${r.hasPolygons ? fmtArea(r.outsideArea) : '—'}</td>
+      <td style="${pctTd}">${r.pctOutside.toFixed(1)}%</td>
+    </tr>`;
+  });
+
+  html += `</tbody></table></div>`;
+
+  const anyOutside = rows.some(r => r.outsideCount > 0);
+  if (anyOutside) {
+    html += `<div style="margin-top:6px;padding:4px 7px;background:rgba(215,125,42,0.1);border:1px solid var(--orange);border-radius:4px;font-size:9px;color:var(--orange);">
+      ⚠ Some design elements fall outside the project boundary.
+    </div>`;
+  } else {
+    html += `<div style="margin-top:6px;padding:4px 7px;background:rgba(0,116,168,0.08);border:1px solid var(--accent);border-radius:4px;font-size:9px;color:var(--accent);">
+      ✓ All design elements are within the project boundary.
+    </div>`;
+  }
+
+  resultEl.innerHTML = html;
+  toast('Design QA complete — ' + rows.length + ' layer(s) analysed', 'success');
+}
+
+// ══════════════════════════════════════════════════════════
 //  SESSION PERSISTENCE (localStorage)
 // ══════════════════════════════════════════════════════════
 const SESSION_KEY = 'gaia_v1_session';
@@ -3997,7 +4221,7 @@ function loadSession() {
       try { state.map.fitBounds(state.layers[ai].leafletLayer.getBounds(), { padding:[40,40] }); } catch(e){}
     }
 
-    updateLayerList(); updateExportLayerList(); updateSBLLayerList(); updateCreateLayerList();
+    updateLayerList(); updateExportLayerList(); updateSBLLayerList(); updateDQALayerList(); updateCreateLayerList();
     setTimeout(refreshLayerZOrder, 150);
     toast('Session restored (' + state.layers.length + ' layer' + (state.layers.length!==1?'s':'') + ')', 'success');
     return true;
@@ -4021,7 +4245,7 @@ function clearSession() {
   state.columnOrder = null;
   updateLayerList();
   updateExportLayerList();
-  updateSBLLayerList();
+  updateSBLLayerList(); updateDQALayerList();
   updateAttrLayerSelect();
   document.getElementById('attr-strip-table-wrap').innerHTML = '<div class="empty-state">Select a layer to view attributes</div>';
   document.getElementById('table-count').textContent = '';
