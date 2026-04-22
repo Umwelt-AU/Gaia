@@ -5,6 +5,17 @@ const _UMWELT_LOGO_B64 = "iVBORw0KGgoAAAANSUhEUgAABNgAAAHcCAYAAAAEHxfNAAEAAElEQV
 
 const LAYER_COLORS = ['#39d353','#5ab4f0','#f0883e','#bc8cff','#e3b341','#f85149','#79c0ff','#56d364','#d2a8ff','#ffa657'];
 
+const CONSTANTS = {
+  TOAST_DURATION_MS:   4500,
+  FETCH_TIMEOUT_MS:    30000,
+  FILE_SIZE_WARN_MB:   50,
+  FILE_SIZE_WARN_BYTES: 50 * 1024 * 1024,
+  MAX_CATALOGUE_FEATURES: 100000,
+  MAP_FIT_PADDING:     [30, 30],
+  MAP_FIT_PADDING_WIDE:[40, 40],
+  AGOL_TOKEN_MINUTES:  120,
+};
+
 const state = {
   layers: [], activeLayerIndex: -1, selectedFeatureIndex: -1,
   selectedFeatureIndices: new Set(),
@@ -42,7 +53,7 @@ const CRS_DEFS = {
   'EPSG:32756': '+proj=utm +zone=56 +south +datum=WGS84 +units=m +no_defs',
   'EPSG:4269':  '+proj=longlat +datum=NAD83 +no_defs',
 };
-Object.entries(CRS_DEFS).forEach(([k,v]) => { try { proj4.defs(k, v); } catch(e){} });
+Object.entries(CRS_DEFS).forEach(([k,v]) => { try { proj4.defs(k, v); } catch(e){ console.warn(`CRS registration failed for ${k}:`, e.message); } });
 
 // Is this CRS projected (metres)?
 function isProjectedCRS(epsg) {
@@ -223,15 +234,21 @@ function updateDisplayCRS() {
 }
 function applyCustomCRS() {
   const val = document.getElementById('custom-epsg').value.trim();
-  if (!val) return;
+  if (!val) { toast('Please enter a CRS code or proj4 definition', 'error'); return; }
   try {
     if (val.toUpperCase().startsWith('EPSG:')) {
-      state.displayCRS = val; toast(`Hover CRS set to ${val}`, 'info');
-    } else {
+      const code = val.toUpperCase();
+      if (!CRS_DEFS[code] && !proj4.defs(code)) {
+        toast(`Unknown CRS: ${code} — add a proj4 definition for this code first`, 'error'); return;
+      }
+      state.displayCRS = code; toast(`Hover CRS set to ${code}`, 'info');
+    } else if (val.startsWith('+') || val.includes('proj=')) {
       proj4.defs('CUSTOM:1', val); state.displayCRS = 'CUSTOM:1';
       CRS_DEFS['CUSTOM:1'] = val; toast('Custom proj4 applied', 'success');
+    } else {
+      toast('Invalid CRS — enter an EPSG code (e.g. EPSG:28355) or a proj4 string (e.g. +proj=utm...)', 'error');
     }
-  } catch(e) { toast('Invalid CRS definition', 'error'); }
+  } catch(e) { toast('Invalid CRS definition: ' + e.message, 'error'); }
 }
 
 // ── DRAG AND DROP ──
@@ -244,6 +261,12 @@ function handleDrop(e) {
 function handleFileSelect(e) { processFileList(Array.from(e.target.files)); e.target.value=''; }
 
 async function processFileList(files) {
+  const largeFiles = files.filter(f => f.size > CONSTANTS.FILE_SIZE_WARN_BYTES);
+  if (largeFiles.length) {
+    const names = largeFiles.map(f => `${f.name} (${(f.size / 1024 / 1024).toFixed(1)} MB)`).join(', ');
+    const proceed = confirm(`Warning: ${names} exceeds ${CONSTANTS.FILE_SIZE_WARN_MB} MB and may cause the browser to become unresponsive during loading.\n\nProceed anyway?`);
+    if (!proceed) return;
+  }
   const groups = {};
   for (const f of files) {
     const ext = f.name.split('.').pop().toLowerCase();
@@ -507,10 +530,6 @@ function confirmKMLPick() {
   });
   document.getElementById('kml-pick-backdrop').classList.remove('open');
   if (_kmlPickResolve) { _kmlPickResolve(selected); _kmlPickResolve = null; }
-}
-
-function escHtml(str) {
-  return String(str).replace(/&/g,'&amp;').replace(/</g,'&lt;').replace(/>/g,'&gt;').replace(/"/g,'&quot;');
 }
 
 async function loadKML(file) {
@@ -786,7 +805,7 @@ function addLayer(geojson, name, sourceCRS, format) {
             showFeaturePopup(state.map, e.latlng, feat2, color);
           }
           updateLayerList(); updateSelectionCount(); refreshMapSelection(layerIdx); renderTable(); scrollTableToFeature(fi);
-          try { const b = sublayer.getBounds(); if(b.isValid()) state.map.flyToBounds(b,{duration:0.4,padding:[40,40]}); } catch(e2) {}
+          try { const b = sublayer.getBounds(); if(b.isValid()) state.map.flyToBounds(b,{duration:0.4,padding:CONSTANTS.MAP_FIT_PADDING_WIDE}); } catch(e2) {}
         }
         // Flag so map.on('click') knows a feature was clicked (don't clear selection)
         e.originalEvent._featureClicked = true;
@@ -814,7 +833,7 @@ function addLayer(geojson, name, sourceCRS, format) {
   state.layers.push({ geojson, name, sourceCRS, format, color, fields, geomType, leafletLayer, visible:true, layerOpacity:1 });
   updateLayerList(); updateExportLayerList(); updateSBLLayerList(); updateDQALayerList(); setActiveLayer(idx);
   _updateEmptyState();
-  try { state.map.fitBounds(leafletLayer.getBounds(), {padding:[30,30]}); } catch(e){}
+  try { state.map.fitBounds(leafletLayer.getBounds(), {padding:CONSTANTS.MAP_FIT_PADDING}); } catch(e){}
 }
 
 // Re-apply normal/selected styles to all sublayers of a vector layer
@@ -1025,6 +1044,12 @@ function toggleLayerVisibility(i) {
 }
 
 function removeLayer(i) {
+  const layer = state.layers[i];
+  if (!layer) return;
+  if (!confirm(`Remove layer "${layer.name}"? This cannot be undone.`)) return;
+  _removeLayerImmediate(i);
+}
+function _removeLayerImmediate(i) {
   state.map.removeLayer(state.layers[i].leafletLayer);
   state.layers.splice(i,1);
   if(state.activeLayerIndex>=state.layers.length) state.activeLayerIndex=state.layers.length-1;
@@ -1581,7 +1606,7 @@ function handleRowClick(event, layerIdx, featIdx) {
     state.selectedFeatureIndex = featIdx;
     const feat=(layer.geojson.features||[])[featIdx];
     if(feat) showFeatureInspector(feat);
-    try { const tl=L.geoJSON(feat); const b=tl.getBounds(); if(b.isValid())state.map.flyToBounds(b,{duration:0.5,padding:[40,40]}); } catch(e){}
+    try { const tl=L.geoJSON(feat); const b=tl.getBounds(); if(b.isValid())state.map.flyToBounds(b,{duration:0.5,padding:CONSTANTS.MAP_FIT_PADDING_WIDE}); } catch(e){}
   }
   state.activeLayerIndex = layerIdx;
   updateSelectionCount(); refreshMapSelection(layerIdx); renderTable();
@@ -1745,10 +1770,11 @@ function setMapZoom(z) {
 
 function fitAll(){
   const ls=state.layers.filter(l=>l.visible); if(!ls.length) return;
-  try{const g=L.featureGroup(ls.map(l=>l.leafletLayer));state.map.fitBounds(g.getBounds(),{padding:[30,30]});}catch(e){}
+  try{const g=L.featureGroup(ls.map(l=>l.leafletLayer));state.map.fitBounds(g.getBounds(),{padding:CONSTANTS.MAP_FIT_PADDING});}catch(e){}
 }
 
 function clearAll(){
+  if (state.layers.length && !confirm(`Remove all ${state.layers.length} layer${state.layers.length !== 1 ? 's' : ''}? This cannot be undone.`)) return;
   state.layers.forEach(l=>state.map.removeLayer(l.leafletLayer));
   state.layers=[]; state.activeLayerIndex=-1; state.selectedFeatureIndex=-1; state.selectedFeatureIndices=new Set();
   updateLayerList(); updateExportLayerList(); clearStats(); showFeatureInspector(null);
@@ -1770,7 +1796,7 @@ function toast(msg,type='info'){
   const el=document.createElement('div'); el.className=`toast ${type}`;
   el.innerHTML=`<span>${icons[type]||'ℹ️'}</span><span>${msg}</span>`;
   document.getElementById('toast-container').appendChild(el);
-  setTimeout(()=>el.remove(),4500);
+  setTimeout(()=>el.remove(), CONSTANTS.TOAST_DURATION_MS);
 }
 
 // ══════════════════════════════════════════════════════
@@ -1814,13 +1840,19 @@ function urlBaseName(url) {
 }
 
 // ── GEOJSON URL ──────────────────────────────────────
+function _isValidURL(str) {
+  try { const u = new URL(str); return u.protocol === 'https:' || u.protocol === 'http:'; }
+  catch(e) { return false; }
+}
+
 async function loadGeoJSONURL() {
   const url = document.getElementById('url-geojson').value.trim();
   const name = document.getElementById('url-geojson-name').value.trim() || urlBaseName(url);
   if (!url) { setURLStatus('Please enter a URL', 'error'); return; }
+  if (!_isValidURL(url)) { setURLStatus('Invalid URL — must start with http:// or https://', 'error'); return; }
   setURLStatus('Fetching…', 'loading');
   try {
-    const resp = await fetch(url);
+    const resp = await fetch(url, { signal: AbortSignal.timeout(CONSTANTS.FETCH_TIMEOUT_MS) });
     if (!resp.ok) throw new Error('HTTP ' + resp.status + ': ' + resp.statusText);
     let geojson = await resp.json();
     if (!geojson.features && geojson.type === 'Feature') geojson = { type:'FeatureCollection', features:[geojson] };
@@ -1837,11 +1869,12 @@ async function loadGeoJSONURL() {
 async function fetchWMSCapabilities() {
   const base = document.getElementById('url-wms').value.trim();
   if (!base) { setURLStatus('Please enter a WMS URL', 'error'); return; }
+  if (!_isValidURL(base)) { setURLStatus('Invalid URL — must start with http:// or https://', 'error'); return; }
   setURLStatus('Fetching capabilities…', 'loading');
   const sep = base.includes('?') ? '&' : '?';
   const capURL = base + sep + 'SERVICE=WMS&REQUEST=GetCapabilities';
   try {
-    const resp = await fetch(capURL);
+    const resp = await fetch(capURL, { signal: AbortSignal.timeout(CONSTANTS.FETCH_TIMEOUT_MS) });
     if (!resp.ok) throw new Error('HTTP ' + resp.status);
     const text = await resp.text();
     const xml = new DOMParser().parseFromString(text, 'text/xml');
@@ -1902,9 +1935,10 @@ function loadXYZLayer() {
 async function fetchArcGISInfo() {
   let url = document.getElementById('url-arcgis').value.trim().replace(/\/+$/, '');
   if (!url) { setURLStatus('Please enter a service URL', 'error'); return; }
+  if (!_isValidURL(url)) { setURLStatus('Invalid URL — must start with http:// or https://', 'error'); return; }
   setURLStatus('Fetching service info…', 'loading');
   try {
-    const resp = await fetch(url + '?f=json');
+    const resp = await fetch(url + '?f=json', { signal: AbortSignal.timeout(CONSTANTS.FETCH_TIMEOUT_MS) });
     if (!resp.ok) throw new Error('HTTP ' + resp.status);
     const info = await resp.json();
     if (info.error) throw new Error(info.error.message);
@@ -2609,7 +2643,7 @@ function closeLayerCtxMenu() {
 function ctxZoomToLayer() {
   closeLayerCtxMenu();
   const layer = state.layers[ctxLayerIdx]; if (!layer) return;
-  try { state.map.fitBounds(layer.leafletLayer.getBounds(), { padding:[30,30] }); } catch(e) {}
+  try { state.map.fitBounds(layer.leafletLayer.getBounds(), { padding:CONSTANTS.MAP_FIT_PADDING }); } catch(e) {}
 }
 
 function ctxSelectAll() {
@@ -4218,7 +4252,7 @@ function loadSession() {
       const ai = Math.min(data.activeLayerIndex||0, state.layers.length-1);
       state.activeLayerIndex = ai;
       setActiveLayer(ai);
-      try { state.map.fitBounds(state.layers[ai].leafletLayer.getBounds(), { padding:[40,40] }); } catch(e){}
+      try { state.map.fitBounds(state.layers[ai].leafletLayer.getBounds(), { padding:CONSTANTS.MAP_FIT_PADDING_WIDE }); } catch(e){}
     }
 
     updateLayerList(); updateExportLayerList(); updateSBLLayerList(); updateDQALayerList(); updateCreateLayerList();
@@ -4343,7 +4377,7 @@ function searchLocation() {
     resultsDiv.style.display = 'block';
   }
   const url = `https://nominatim.openstreetmap.org/search?q=${encodeURIComponent(q)}&format=json&limit=6&addressdetails=1`;
-  fetch(url, { headers: { 'Accept-Language': 'en', 'User-Agent': 'GaiaGISViewer/1.0' } })
+  fetch(url, { headers: { 'Accept-Language': 'en', 'User-Agent': 'GaiaGISViewer/1.0' }, signal: AbortSignal.timeout(CONSTANTS.FETCH_TIMEOUT_MS) })
     .then(r => r.json())
     .then(data => {
       if (!resultsDiv) return;
@@ -4420,7 +4454,7 @@ function reverseGeocode(lat, lng, callback) {
   var url = 'https://nominatim.openstreetmap.org/reverse?lat=' + lat + '&lon=' + lng +
             '&format=json&zoom=18&addressdetails=1';
 
-  fetch(url, { headers: { 'Accept-Language': 'en', 'User-Agent': 'GaiaGISViewer/1.0' } })
+  fetch(url, { headers: { 'Accept-Language': 'en', 'User-Agent': 'GaiaGISViewer/1.0' }, signal: AbortSignal.timeout(CONSTANTS.FETCH_TIMEOUT_MS) })
     .then(function(r) { return r.json(); })
     .then(function(data) {
       var hasNumber = data && data.address && data.address.house_number;
@@ -4440,7 +4474,7 @@ function reverseGeocode(lat, lng, callback) {
       var searchUrl = 'https://nominatim.openstreetmap.org/search?q=&format=json&limit=5' +
                       '&addressdetails=1&bounded=1&viewbox=' + viewbox;
 
-      fetch(searchUrl, { headers: { 'Accept-Language': 'en', 'User-Agent': 'GaiaGISViewer/1.0' } })
+      fetch(searchUrl, { headers: { 'Accept-Language': 'en', 'User-Agent': 'GaiaGISViewer/1.0' }, signal: AbortSignal.timeout(CONSTANTS.FETCH_TIMEOUT_MS) })
         .then(function(r2) { return r2.json(); })
         .then(function(results) {
           // Find the nearest result that has a house_number
@@ -7233,7 +7267,18 @@ function _evalFCExpr(expr, props) {
   });
   // Safe eval in a restricted context
   // eslint-disable-next-line no-new-func
-  return new Function('Math', 'String', 'Number', 'parseFloat', 'parseInt', 'return (' + js + ')')(Math, String, Number, parseFloat, parseInt);
+  return new Function(
+    'Math', 'String', 'Number', 'parseFloat', 'parseInt',
+    'Boolean', 'Array', 'Object', 'JSON', 'Date', 'isNaN', 'isFinite',
+    'window', 'document', 'globalThis', 'self', 'Function', 'fetch',
+    'XMLHttpRequest', 'WebSocket', 'navigator', 'location',
+    'return (' + js + ')'
+  )(
+    Math, String, Number, parseFloat, parseInt,
+    Boolean, Array, Object, JSON, Date, isNaN, isFinite,
+    undefined, undefined, undefined, undefined, undefined, undefined,
+    undefined, undefined, undefined, undefined
+  );
 }
 
 function fcPreview() {
@@ -7990,7 +8035,6 @@ async function addLayerFromCatalogue(url, name) {
 
 async function _catalogueLoadArcGIS(url, name) {
   const cleanUrl = url.trim().replace(/\/+$/, '');
-  const MAX_FEATURES = 100000;
 
   // Build extent query from current map bounds
   const queryParams = {
@@ -7998,7 +8042,7 @@ async function _catalogueLoadArcGIS(url, name) {
     outFields: '*',
     outSR: '4326',
     f: 'geojson',
-    resultRecordCount: MAX_FEATURES,
+    resultRecordCount: CONSTANTS.MAX_CATALOGUE_FEATURES,
     returnGeometry: 'true'
   };
 
@@ -8012,14 +8056,14 @@ async function _catalogueLoadArcGIS(url, name) {
 
   try {
     const params = new URLSearchParams(queryParams);
-    const resp = await fetch(cleanUrl + '/query?' + params.toString());
+    const resp = await fetch(cleanUrl + '/query?' + params.toString(), { signal: AbortSignal.timeout(CONSTANTS.FETCH_TIMEOUT_MS) });
     if (!resp.ok) throw new Error('HTTP ' + resp.status);
     const geojson = await resp.json();
     if (geojson.error) throw new Error(geojson.error.message || JSON.stringify(geojson.error));
     if (!geojson.features) throw new Error('No features returned');
 
     const n = geojson.features.length;
-    const truncated = n >= MAX_FEATURES;
+    const truncated = n >= CONSTANTS.MAX_CATALOGUE_FEATURES;
     addLayer(geojson, name, 'EPSG:4326', 'ArcGIS REST');
     toast(`${name}: ${n} feature${n!==1?'s':''} loaded${truncated?' (limit reached — zoom in)':''}`, 'success');
   } catch(err) {
@@ -8045,7 +8089,7 @@ function _catalogueLoadXYZ(url, name) {
 
 async function _catalogueLoadGeoJSONURL(url, name) {
   try {
-    const resp = await fetch(url);
+    const resp = await fetch(url, { signal: AbortSignal.timeout(CONSTANTS.FETCH_TIMEOUT_MS) });
     if (!resp.ok) throw new Error('HTTP ' + resp.status);
     const geojson = await resp.json();
     if (!geojson.features && geojson.type !== 'FeatureCollection') throw new Error('Not a valid GeoJSON response');

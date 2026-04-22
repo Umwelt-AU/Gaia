@@ -5,17 +5,28 @@
 <meta name="viewport" content="width=device-width, initial-scale=1.0">
 <title>Gaia v1.0 — GIS Data Explorer</title>
 
-<link rel="stylesheet" href="https://unpkg.com/leaflet@1.9.4/dist/leaflet.css"/>
-<script src="https://unpkg.com/leaflet@1.9.4/dist/leaflet.js"></script>
-<script src="https://cdnjs.cloudflare.com/ajax/libs/proj4js/2.9.0/proj4.js"></script>
-<script src="https://cdnjs.cloudflare.com/ajax/libs/jszip/3.10.1/jszip.min.js"></script>
-<script src="https://unpkg.com/shapefile@0.6.6/dist/shapefile.js"></script>
-<script src="https://unpkg.com/@tmcw/togeojson@5.8.1/dist/togeojson.umd.js"></script>
-<script src="https://cdnjs.cloudflare.com/ajax/libs/xlsx/0.18.5/xlsx.full.min.js"></script>
+<!-- CDN dependencies — integrity hashes protect against CDN compromise.
+     To generate/refresh hashes run: bash tools/generate-sri.sh
+     Then replace each integrity="sha384-PLACEHOLDER-..." below with the output. -->
+<link rel="stylesheet" href="https://unpkg.com/leaflet@1.9.4/dist/leaflet.css"
+      integrity="sha384-PLACEHOLDER-leaflet.css" crossorigin="anonymous"/>
+<script src="https://unpkg.com/leaflet@1.9.4/dist/leaflet.js"
+        integrity="sha384-PLACEHOLDER-leaflet.js" crossorigin="anonymous"></script>
+<script src="https://cdnjs.cloudflare.com/ajax/libs/proj4js/2.9.0/proj4.js"
+        integrity="sha384-PLACEHOLDER-proj4.js" crossorigin="anonymous"></script>
+<script src="https://cdnjs.cloudflare.com/ajax/libs/jszip/3.10.1/jszip.min.js"
+        integrity="sha384-PLACEHOLDER-jszip.min.js" crossorigin="anonymous"></script>
+<script src="https://unpkg.com/shapefile@0.6.6/dist/shapefile.js"
+        integrity="sha384-PLACEHOLDER-shapefile.js" crossorigin="anonymous"></script>
+<script src="https://unpkg.com/@tmcw/togeojson@5.8.1/dist/togeojson.umd.js"
+        integrity="sha384-PLACEHOLDER-togeojson.umd.js" crossorigin="anonymous"></script>
+<script src="https://cdnjs.cloudflare.com/ajax/libs/xlsx/0.18.5/xlsx.full.min.js"
+        integrity="sha384-PLACEHOLDER-xlsx.full.min.js" crossorigin="anonymous"></script>
 
 <link rel="stylesheet" href="css/gaia.css"/>
 <!-- pdf-lib for PDF template export -->
-<script src="https://unpkg.com/pdf-lib@1.17.1/dist/pdf-lib.min.js"></script>
+<script src="https://unpkg.com/pdf-lib@1.17.1/dist/pdf-lib.min.js"
+        integrity="sha384-PLACEHOLDER-pdf-lib.min.js" crossorigin="anonymous"></script>
 <!-- Umwelt 2024 logo (transparent, landscape) -->
 <script src="js/umwelt-logo.js"></script>
 <!-- Gaia config — fill in your AGOL Client ID here -->

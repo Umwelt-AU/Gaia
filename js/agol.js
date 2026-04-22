@@ -59,6 +59,7 @@ async function _agolPost(path, params = {}) {
     method:  'POST',
     headers: { 'Content-Type': 'application/x-www-form-urlencoded' },
     body:    body.toString(),
+    signal:  AbortSignal.timeout(CONSTANTS.FETCH_TIMEOUT_MS),
   });
   if (!resp.ok) throw new Error('HTTP ' + resp.status + ' ' + resp.statusText);
   const data = await resp.json();
@@ -189,7 +190,7 @@ async function _agolFetchSelf() {
   const api = _agolApiBase();
   try {
     const selfUrl = api + '/sharing/rest/community/self?f=json&token=' + encodeURIComponent(agol.token);
-    const resp = await fetch(selfUrl);
+    const resp = await fetch(selfUrl, { signal: AbortSignal.timeout(CONSTANTS.FETCH_TIMEOUT_MS) });
     if (!resp.ok) throw new Error('HTTP ' + resp.status);
     const data = await resp.json();
     if (data.error) throw new Error(data.error.message || JSON.stringify(data.error));
@@ -207,7 +208,7 @@ async function _agolFetchSelf() {
     if (data.orgId) {
       try {
         const orgUrl = api + '/sharing/rest/portals/' + data.orgId + '?f=json&token=' + encodeURIComponent(agol.token);
-        const orgResp = await fetch(orgUrl);
+        const orgResp = await fetch(orgUrl, { signal: AbortSignal.timeout(CONSTANTS.FETCH_TIMEOUT_MS) });
         const orgData = await orgResp.json();
         agol.orgName = orgData.name || '';
       } catch(e) {}
@@ -507,7 +508,7 @@ async function _agolQueryItems() {
       try {
         const ud = await _agolPost(`/sharing/rest/content/users/${agol.username}`);
         folders = (ud.folders || []).map(f => ({ ...f, _isFolder: true }));
-      } catch(e) {}
+      } catch(e) { console.warn('AGOL: could not fetch folders:', e.message); }
     }
     return { results: [...folders, ...items], total: agol.searchTotal, folders: folders.length };
   }
@@ -678,7 +679,7 @@ async function _agolLoadFeatureService(serviceUrl, title) {
     return;
   }
   // Inspect root service for layers
-  const resp = await fetch(cleanUrl + '?f=json&token=' + agol.token);
+  const resp = await fetch(cleanUrl + '?f=json&token=' + agol.token, { signal: AbortSignal.timeout(CONSTANTS.FETCH_TIMEOUT_MS) });
   const info = await resp.json();
   if (info.error) throw new Error(info.error.message);
   const layers = info.layers || [];
@@ -773,6 +774,7 @@ async function _agolDownloadFeatureLayer(layerUrl, name) {
     method:  'POST',
     headers: { 'Content-Type': 'application/x-www-form-urlencoded' },
     body:    body.toString(),
+    signal:  AbortSignal.timeout(CONSTANTS.FETCH_TIMEOUT_MS),
   });
   if (!resp.ok) throw new Error('HTTP ' + resp.status);
   const geojson = await resp.json();
