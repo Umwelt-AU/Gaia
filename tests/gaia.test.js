@@ -8,7 +8,9 @@
 import { describe, it, expect, vi, beforeEach } from 'vitest';
 
 // ─── Inline the pure helpers under test ──────────────────────────────────────
-// These are copied verbatim from gaia.js so they can be imported without a DOM.
+// These are copied verbatim from js/gaia-utils.js.
+// gaia-utils.js cannot be imported directly because it is a classic browser
+// script (no ES module exports) — keep these copies in sync with that file.
 
 const CONSTANTS = {
   TOAST_DURATION_MS:    4500,

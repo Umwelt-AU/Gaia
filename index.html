@@ -8,31 +8,35 @@
 <!-- CDN dependencies — integrity hashes protect against CDN compromise.
      To generate/refresh hashes run: bash tools/generate-sri.sh
      Then replace each integrity="sha384-PLACEHOLDER-..." below with the output. -->
-<link rel="stylesheet" href="https://unpkg.com/leaflet@1.9.4/dist/leaflet.css"
-      integrity="sha384-PLACEHOLDER-leaflet.css" crossorigin="anonymous"/>
-<script src="https://unpkg.com/leaflet@1.9.4/dist/leaflet.js"
-        integrity="sha384-PLACEHOLDER-leaflet.js" crossorigin="anonymous"></script>
+<!-- MapLibre GL JS — the sole map engine (replaces Leaflet entirely) -->
+<link rel="stylesheet" href="https://unpkg.com/maplibre-gl@3.6.2/dist/maplibre-gl.css"/>
+<script src="https://unpkg.com/maplibre-gl@3.6.2/dist/maplibre-gl.js"
+        onerror="document.body.innerHTML='<div style=padding:40px;font-family:sans-serif;color:#c00><h2>Failed to load MapLibre GL JS</h2><p>Check your internet connection or use the offline bundle in lib/. See lib/INSTRUCTIONS.txt.</p></div>'"></script>
 <script src="https://cdnjs.cloudflare.com/ajax/libs/proj4js/2.9.0/proj4.js"
-        integrity="sha384-PLACEHOLDER-proj4.js" crossorigin="anonymous"></script>
+        integrity="sha384-U14wzrePlI+UpXk1Jpe45fK/C0yeI7rtwKzi9eM3Lj7LYjXlHNy0YacuWZIk7Hic" crossorigin="anonymous"
+        onerror="console.error('Failed to load proj4js — CRS reprojection will not work')"></script>
 <script src="https://cdnjs.cloudflare.com/ajax/libs/jszip/3.10.1/jszip.min.js"
-        integrity="sha384-PLACEHOLDER-jszip.min.js" crossorigin="anonymous"></script>
+        integrity="sha384-+mbV2IY1Zk/X1p/nWllGySJSUN8uMs+gUAN10Or95UBH0fpj6GfKgPmgC5EXieXG" crossorigin="anonymous"
+        onerror="console.error('Failed to load JSZip — ZIP/KMZ files will not open')"></script>
 <script src="https://unpkg.com/shapefile@0.6.6/dist/shapefile.js"
-        integrity="sha384-PLACEHOLDER-shapefile.js" crossorigin="anonymous"></script>
+        integrity="sha384-AnaN4Cb+j87sW31slnKan5C+CiomEKHSHNTPrOFT9JRmA791tByRiFBK9QtZ0yOR" crossorigin="anonymous"
+        onerror="console.error('Failed to load shapefile.js — SHP files will not open')"></script>
 <script src="https://unpkg.com/@tmcw/togeojson@5.8.1/dist/togeojson.umd.js"
-        integrity="sha384-PLACEHOLDER-togeojson.umd.js" crossorigin="anonymous"></script>
+        integrity="sha384-4a+9x4ql6wch9epMfqnC3bSjASMJDDqpSuVblbNd6thkfnwdBucHgePPyl0exaFY" crossorigin="anonymous"
+        onerror="console.error('Failed to load toGeoJSON — KML/GPX files will not open')"></script>
 <script src="https://cdnjs.cloudflare.com/ajax/libs/xlsx/0.18.5/xlsx.full.min.js"
-        integrity="sha384-PLACEHOLDER-xlsx.full.min.js" crossorigin="anonymous"></script>
+        integrity="sha384-vtjasyidUo0kW94K5MXDXntzOJpQgBKXmE7e2Ga4LG0skTTLeBi97eFAXsqewJjw" crossorigin="anonymous"
+        onerror="console.error('Failed to load xlsx.js — catalogue and Excel files will not open')"></script>
 <!-- sql.js — GeoPackage (.gpkg) support -->
 <script src="https://cdnjs.cloudflare.com/ajax/libs/sql.js/1.10.3/sql-wasm.js"
-        crossorigin="anonymous"></script>
-<!-- MapLibre GL JS — 3D map support -->
-<link rel="stylesheet" href="https://unpkg.com/maplibre-gl@3.6.2/dist/maplibre-gl.css"/>
-<script src="https://unpkg.com/maplibre-gl@3.6.2/dist/maplibre-gl.js"></script>
+        crossorigin="anonymous"
+        onerror="console.error('Failed to load sql.js — GeoPackage (.gpkg) files will not open')"></script>
 
 <link rel="stylesheet" href="css/gaia.css"/>
 <!-- pdf-lib for PDF template export -->
 <script src="https://unpkg.com/pdf-lib@1.17.1/dist/pdf-lib.min.js"
-        integrity="sha384-PLACEHOLDER-pdf-lib.min.js" crossorigin="anonymous"></script>
+        integrity="sha384-weMABwrltA6jWR8DDe9Jp5blk+tZQh7ugpCsF3JwSA53WZM9/14PjS5LAJNHNjAI" crossorigin="anonymous"
+        onerror="console.error('Failed to load pdf-lib — PDF export will not work')"></script>
 <!-- Umwelt 2024 logo (transparent, landscape) -->
 <script src="js/umwelt-logo.js"></script>
 <!-- Gaia config — fill in your AGOL Client ID here -->
@@ -110,170 +114,7 @@
   <!-- Particle dots rendered on canvas -->
 </div>
 
-<style>
-/* ── Loading screen ─────────────────────────────────────── */
-#gaia-loader {
-  position: fixed;
-  inset: 0;
-  z-index: 99999;
-  background: #0C2E44;
-  display: flex;
-  align-items: center;
-  justify-content: center;
-  overflow: hidden;
-  transition: opacity 0.7s ease, visibility 0.7s ease;
-}
-#gaia-loader.fade-out {
-  opacity: 0;
-  visibility: hidden;
-}
 
-#loader-canvas {
-  position: absolute;
-  inset: 0;
-  width: 100%;
-  height: 100%;
-  pointer-events: none;
-}
-
-#loader-content {
-  position: relative;
-  z-index: 2;
-  display: flex;
-  flex-direction: column;
-  align-items: center;
-  gap: 16px;
-}
-
-/* Globe */
-#loader-globe {
-  width: 130px;
-  height: 130px;
-  animation: loaderGlobeSpin 6s linear infinite, loaderGlobeFloat 3s ease-in-out infinite;
-  filter: drop-shadow(0 0 24px rgba(20,177,231,0.55));
-}
-#loader-globe svg { width: 100%; height: 100%; }
-
-.loader-pin {
-  animation: loaderPinPulse 2s ease-in-out infinite;
-  transform-origin: 60px 47px;
-}
-
-@keyframes loaderGlobeSpin {
-  from { filter: drop-shadow(0 0 20px rgba(20,177,231,0.5)); }
-  50%  { filter: drop-shadow(0 0 36px rgba(20,177,231,0.85)); }
-  to   { filter: drop-shadow(0 0 20px rgba(20,177,231,0.5)); }
-}
-@keyframes loaderGlobeFloat {
-  0%, 100% { transform: translateY(0); }
-  50%       { transform: translateY(-8px); }
-}
-@keyframes loaderPinPulse {
-  0%, 100% { transform: scale(1); opacity: 1; }
-  50%       { transform: scale(1.3); opacity: 0.6; }
-}
-
-/* Brand text */
-#loader-brand {
-  font-family: 'JetBrains Mono', 'Courier New', monospace;
-  font-size: 52px;
-  font-weight: 700;
-  letter-spacing: 8px;
-  color: #e8f4fb;
-  display: flex;
-  gap: 0;
-}
-#loader-brand span {
-  display: inline-block;
-  animation: loaderLetterDrop 0.6s ease both;
-}
-#loader-g  { animation-delay: 0.0s; }
-#loader-a1 { animation-delay: 0.1s; }
-#loader-i  { animation-delay: 0.2s; }
-#loader-a2 { animation-delay: 0.3s; }
-
-@keyframes loaderLetterDrop {
-  from { opacity: 0; transform: translateY(-20px); }
-  to   { opacity: 1; transform: translateY(0); }
-}
-
-#loader-tagline {
-  font-family: 'JetBrains Mono', monospace;
-  font-size: 11px;
-  letter-spacing: 4px;
-  text-transform: uppercase;
-  color: #14b1e7;
-  opacity: 0;
-  animation: loaderFadeIn 0.5s ease 0.5s both;
-}
-
-@keyframes loaderFadeIn {
-  from { opacity: 0; transform: translateY(4px); }
-  to   { opacity: 1; transform: translateY(0); }
-}
-
-/* Progress bar */
-#loader-progress-wrap {
-  width: 260px;
-  height: 3px;
-  background: rgba(161,209,230,0.15);
-  border-radius: 99px;
-  overflow: hidden;
-  opacity: 0;
-  animation: loaderFadeIn 0.4s ease 0.7s both;
-}
-#loader-progress-bar {
-  height: 100%;
-  width: 0%;
-  background: linear-gradient(90deg, #14b1e7, #8ebe3f, #14b1e7);
-  background-size: 200% 100%;
-  border-radius: 99px;
-  transition: width 0.25s ease;
-  animation: loaderBarShimmer 1.5s linear infinite;
-}
-@keyframes loaderBarShimmer {
-  0%   { background-position: 200% 0; }
-  100% { background-position: -200% 0; }
-}
-
-/* Status text */
-#loader-status {
-  font-family: 'JetBrains Mono', monospace;
-  font-size: 9px;
-  letter-spacing: 1.5px;
-  text-transform: uppercase;
-  color: rgba(161,209,230,0.6);
-  min-height: 14px;
-  opacity: 0;
-  animation: loaderFadeIn 0.4s ease 0.8s both;
-  transition: opacity 0.3s;
-}
-
-/* Coordinate grid lines in background */
-#gaia-loader::before {
-  content: '';
-  position: absolute;
-  inset: 0;
-  background-image:
-    linear-gradient(rgba(20,177,231,0.05) 1px, transparent 1px),
-    linear-gradient(90deg, rgba(20,177,231,0.05) 1px, transparent 1px);
-  background-size: 48px 48px;
-  animation: loaderGridPan 8s linear infinite;
-}
-@keyframes loaderGridPan {
-  from { background-position: 0 0; }
-  to   { background-position: 48px 48px; }
-}
-
-/* Radial vignette */
-#gaia-loader::after {
-  content: '';
-  position: absolute;
-  inset: 0;
-  background: radial-gradient(ellipse at center, transparent 35%, rgba(10,20,35,0.7) 100%);
-  pointer-events: none;
-}
-</style>
 
 <script>
 /* ── Loader Logic ──────────────────────────────────────────── */
@@ -559,8 +400,7 @@
 
   <!-- LEFT PANEL -->
   <div id="left-panel">
-
-    <!-- Load Data -->
+    <div class="panel-resize-handle" id="left-resize-handle" title="Drag to resize panel"></div>
     <div class="panel-section">
       <div class="panel-header" onclick="toggleSection(this)">
         <span>📁</span> Load Data
@@ -663,6 +503,7 @@
       <div id="map">
       <!-- Legend map control button -->
       <button id="legend-map-btn" title="Toggle Legend" onclick="toggleMapLegend()">▤</button>
+      <button id="attr-table-map-btn" title="Toggle Attribute Table" onclick="toggleAttrTable()">⊟</button>
       <!-- Floating legend panel -->
       <div id="legend-float">
         <div id="legend-float-header">
@@ -671,21 +512,8 @@
         </div>
         <div id="legend-body" class="panel-body" style="padding:8px 10px;"></div>
       </div>
-      <!-- Geoprocess hover tooltip -->
+      <!-- Geoprocess hover tooltip (fixed-positioned, inside map for z-index scoping) -->
       <div id="gp-tooltip"></div>
-      <!-- 3D Map overlay (MapLibre GL) — hidden until toggle -->
-      <div id="map-3d" style="display:none;position:absolute;inset:0;z-index:600;"></div>
-      <!-- 3D controls bar — shown when 3D is active -->
-      <div id="map-3d-controls" style="position:absolute;bottom:12px;left:50%;transform:translateX(-50%);z-index:700;
-           background:rgba(20,30,45,0.88);border:1px solid rgba(20,177,231,0.3);border-radius:8px;
-           padding:6px 10px;display:none;align-items:center;gap:10px;pointer-events:auto;">
-        <span style="font-family:var(--mono);font-size:9px;color:#8ab;letter-spacing:1px;">3D VIEW</span>
-        <label style="font-family:var(--mono);font-size:9px;color:#8ab;">Tilt</label>
-        <input type="range" id="map3d-pitch" min="0" max="85" value="45" style="width:80px;" oninput="_update3DPitch(this.value)"/>
-        <label style="font-family:var(--mono);font-size:9px;color:#8ab;">Bearing</label>
-        <input type="range" id="map3d-bearing" min="-180" max="180" value="0" style="width:80px;" oninput="_update3DBearing(this.value)"/>
-        <button onclick="toggle3DMap()" style="background:rgba(255,80,80,0.18);border:1px solid rgba(255,80,80,0.4);border-radius:4px;color:#f87;font-family:var(--mono);font-size:9px;padding:2px 8px;cursor:pointer;">✕ Exit 3D</button>
-      </div>
       <!-- GUIDED EMPTY STATE — hidden once first layer loads -->
       <div id="map-empty-state">
         <div id="mes-inner">
@@ -712,13 +540,16 @@
           </div>
         </div>
       </div>
-      </div>
-    </div>
+      </div><!-- /#map -->
 
-    <!-- ATTRIBUTE TABLE STRIP -->
-    <div id="attr-strip">
+      
+    </div><!-- /#map-container -->
+
+    <!-- ATTRIBUTE TABLE STRIP (hidden by default — accessible via right-click > Open Attribute Table) -->
+    <div id="attr-strip" style="display:none;">
       <div id="attr-strip-header">
         <span class="label">⊟ Attribute Table</span>
+        <span id="attr-table-spinner" style="display:none;margin-left:8px;font-size:9px;color:var(--text3);">⏳ Loading…</span>
         <span id="table-count" style="font-family:var(--mono);font-size:9px;color:var(--text3);margin-left:6px;"></span>
         <!-- hidden layer select kept for JS compatibility -->
         <select id="attr-layer-select" onchange="onAttrLayerChange()" style="display:none;">
@@ -749,6 +580,7 @@
 
   <!-- RIGHT PANEL -->
   <div id="right-panel">
+    <div class="panel-resize-handle" id="right-resize-handle" title="Drag to resize panel"></div>
     <!-- Panel Action Buttons -->
     <div class="panel-section" style="padding:10px 12px;display:flex;flex-direction:column;gap:6px;">
       <button class="btn btn-ghost btn-full" onclick="exportMapPNG()" style="font-size:10px;" title="Export current map view as PNG">
@@ -763,13 +595,10 @@
       <button class="btn btn-ghost btn-full" onclick="toggleWidgetPanel()" id="widgets-open-btn" style="font-size:10px;">
         ⚙ Widgets
       </button>
-      <button class="btn btn-ghost btn-full" onclick="toggle3DMap()" id="btn-3d-toggle" style="font-size:10px;">
-        🏙 Enable 3D View
-      </button>
 
 
     </div>
-    <!-- Layer Stats -->
+    <!-- Layer Stats (compact) -->
     <div class="panel-section" id="stats-section" style="display:none;">
       <div class="panel-header" onclick="toggleSection(this)">
         <span>◈</span> Layer Stats
@@ -777,10 +606,10 @@
       </div>
       <div class="panel-body">
         <div id="stats-grid">
-          <div class="stat-card"><div class="stat-val" id="stat-features">–</div><div class="stat-lbl">Total</div></div>
-          <div class="stat-card"><div class="stat-val" id="stat-fields">–</div><div class="stat-lbl">Fields</div></div>
-          <div class="stat-card"><div class="stat-val" id="stat-geomtype">–</div><div class="stat-lbl">Type</div></div>
-          <div class="stat-card"><div class="stat-val" id="stat-crs" style="font-size:9px;">–</div><div class="stat-lbl">CRS</div></div>
+          <div class="stat-card"><span class="stat-val" id="stat-features">–</span><span class="stat-lbl">features</span></div>
+          <div class="stat-card"><span class="stat-val" id="stat-fields">–</span><span class="stat-lbl">fields</span></div>
+          <div class="stat-card"><span class="stat-val" id="stat-geomtype">–</span><span class="stat-lbl">type</span></div>
+          <div class="stat-card"><span class="stat-val" id="stat-crs">–</span><span class="stat-lbl">CRS</span></div>
         </div>
         <div id="bbox-section" style="display:none;">
           <div style="padding:3px 10px;font-family:var(--mono);font-size:8px;color:var(--text3);letter-spacing:1px;">BOUNDING BOX</div>
@@ -793,8 +622,14 @@
         </div>
       </div>
     </div>
-    <!-- Feature Inspector stub (hidden, keeps JS compatibility) -->
-    <div id="feature-content" style="display:none;"></div>
+    <!-- Attributes Panel -->
+    <div class="panel-section" id="attr-panel-section">
+      <div class="panel-header" onclick="toggleSection(this)">
+        <span>◎</span> Attributes
+        <svg class="chevron" width="12" height="12" viewBox="0 0 12 12"><path d="M3 4.5L6 7.5L9 4.5" stroke="currentColor" stroke-width="1.5" fill="none"/></svg>
+      </div>
+      <div id="feature-content"></div>
+    </div>
   </div>
 </div>
 
@@ -1469,72 +1304,7 @@
     <div class="widget-pane" id="wp-geoprocess" style="padding:0;">
 
       <!-- Sub-group header style -->
-      <style>
-        .gp-section { border-bottom:1px solid var(--border); }
-        .gp-section-header {
-          display:flex; align-items:center; gap:6px;
-          padding:7px 10px; cursor:pointer;
-          background:var(--bg3); user-select:none;
-          font-family:var(--mono); font-size:9px; font-weight:700;
-          color:var(--text2); letter-spacing:0.8px; text-transform:uppercase;
-          position:relative;
-        }
-        .gp-section-header:hover { background:var(--bg2); }
-        .gp-section-body { padding:8px 10px 10px; display:none; }
-        .gp-section-body.open { display:block; }
-        .gp-label { font-size:9px;color:var(--text3);display:block;margin-bottom:3px;font-family:var(--mono);letter-spacing:0.5px;text-transform:uppercase; }
-        .gp-row { margin-bottom:6px; }
-        .gp-result { font-family:var(--mono);font-size:10px;color:var(--accent);padding:4px 6px;background:var(--bg);border:1px solid var(--border);border-radius:4px;margin-top:6px;display:none; }
-        .gp-chevron { margin-left:auto; font-size:10px; transition:transform 0.15s; flex-shrink:0; }
 
-        /* Geoprocess hover tooltip */
-        #gp-tooltip {
-          position:fixed; z-index:9900; pointer-events:none;
-          background:#1a2433; border:1px solid var(--teal);
-          border-radius:6px; padding:8px 10px; max-width:240px;
-          font-family:var(--mono); font-size:9px; line-height:1.6;
-          color:#c8d8e8; box-shadow:0 4px 16px rgba(0,0,0,0.4);
-          opacity:0; transition:opacity 0.15s;
-        }
-        #gp-tooltip.visible { opacity:1; }
-
-        /* Legend floating button on map */
-        #legend-map-btn {
-          position:absolute; z-index:800;
-          left:10px; top:80px;
-          width:30px; height:30px;
-          background:white; border:2px solid rgba(0,0,0,0.25);
-          border-radius:4px; cursor:pointer;
-          display:flex; align-items:center; justify-content:center;
-          font-size:14px; box-shadow:0 1px 5px rgba(0,0,0,0.2);
-          transition:background 0.15s;
-        }
-        #legend-map-btn:hover { background:#f4f4f4; }
-        #legend-map-btn.active { background:#e8f4fb; border-color:var(--teal); }
-
-        /* Legend floating panel */
-        #legend-float {
-          position:absolute; z-index:799;
-          left:48px; top:80px;
-          background:var(--bg2); border:1px solid var(--border);
-          border-radius:8px; box-shadow:0 4px 20px rgba(0,0,0,0.25);
-          min-width:180px; max-width:260px; max-height:60vh;
-          overflow-y:auto; display:none;
-        }
-        #legend-float.open { display:block; animation:wfadeIn 0.12s ease; }
-        #legend-float-header {
-          padding:8px 10px 6px; border-bottom:1px solid var(--border);
-          font-family:var(--mono); font-size:9px; font-weight:700;
-          color:var(--text2); letter-spacing:1px; text-transform:uppercase;
-          display:flex; align-items:center; justify-content:space-between;
-          background:var(--bg3); border-radius:8px 8px 0 0;
-        }
-        #legend-float-body { padding:8px 10px; }
-
-        /* 3D map controls bar alignment */
-        #map-3d-controls { display:none; }
-        #map-3d-controls.active { display:flex; }
-      </style>
 
       <!-- Buffer -->
       <div class="gp-section">
@@ -1572,12 +1342,13 @@
       <!-- Union -->
       <div class="gp-section">
         <div class="gp-section-header" onclick="gpToggle('gp-union')"
-             data-gp-tip="Combines all features from a single layer into one merged feature. Useful for collapsing many polygons or lines into a single geometry object, preserving the outer boundary of the whole dataset.">
-          ⊔ Union<span style="color:var(--text3);font-weight:400;margin-left:4px;text-transform:none;letter-spacing:0;">— combine all features</span>
+             data-gp-tip="Combines all features from two layers into a single output layer. Unlike Dissolve (which merges geometry), Union simply collects every feature from both layers into one FeatureCollection. A _source attribute records which layer each feature came from.">
+          ⊔ Union<span style="color:var(--text3);font-weight:400;margin-left:4px;text-transform:none;letter-spacing:0;">— combine two layers</span>
           <span class="gp-chevron">▶</span>
         </div>
         <div class="gp-section-body" id="gp-union">
-          <div class="gp-row"><label class="gp-label">Source Layer</label><select id="gp-union-src"><option value="">— select layer —</option></select></div>
+          <div class="gp-row"><label class="gp-label">Layer A</label><select id="gp-union-a"><option value="">— select layer —</option></select></div>
+          <div class="gp-row"><label class="gp-label">Layer B</label><select id="gp-union-b"><option value="">— select layer —</option></select></div>
           <div class="gp-row"><label class="gp-label">Output Name</label><input type="text" id="gp-union-name" placeholder="Union" style="padding:4px 7px;font-size:10px;width:100%;box-sizing:border-box;"/></div>
           <button class="btn btn-primary btn-full" onclick="runGeoUnion()" style="font-size:9px;">⊔ Run Union</button>
           <div class="gp-result" id="gp-union-result"></div>
@@ -1804,7 +1575,21 @@
 <!-- TOAST CONTAINER -->
 <div id="toast-container"></div>
 
-<script src="js/gaia.js?v=4d047ac2"></script>
+<script src="js/gaia-utils.js"></script>
+<script src="js/gaia-core.js"></script>
+<script src="js/gaia-map.js"></script>
+<script src="js/gaia-parsers.js"></script>
+<script src="js/gaia-geoprocess.js"></script>
+<script src="js/gaia-layers.js"></script>
+<script src="js/gaia-attribute.js"></script>
+<script src="js/gaia-services.js"></script>
+<script src="js/gaia-widgets.js"></script>
+<script src="js/gaia-ui.js"></script>
+<script src="js/gaia-draw.js"></script>
+<script src="js/gaia-session.js"></script>
+<script src="js/gaia-symbology.js"></script>
+<script src="js/gaia-export-map.js"></script>
+<script src="js/gaia-tools.js"></script>
 <script src="js/agol.js?v=3ec5269a"></script>
 <!-- MAP RIGHT-CLICK CONTEXT MENU -->
 <div id="map-ctx-menu" style="display:none;position:fixed;z-index:9800;background:#ffffff;border:1px solid var(--border);border-radius:7px;box-shadow:0 6px 24px rgba(0,0,0,0.18);min-width:260px;max-width:300px;overflow:hidden;animation:wfadeIn 0.12s ease;">

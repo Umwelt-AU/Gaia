@@ -10,6 +10,7 @@
 // ═══════════════════════════════════════════════════════════════════════════
 
 const GAIA_CONFIG = {
+  mapTilerKey: 'rw1EkxS93F7pBPgaCfEI',
   agol: {
     clientId:    '2TXWEhK9RGbU6KP4',
     portalUrl:   'https://umweltau.maps.arcgis.com',
