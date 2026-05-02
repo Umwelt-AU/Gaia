@@ -517,6 +517,7 @@
       <!-- GUIDED EMPTY STATE — hidden once first layer loads -->
       <div id="map-empty-state">
         <div id="mes-inner">
+        <button id="mes-close" onclick="dismissEmptyState()" title="Close">&times;</button>
           <div id="mes-icon">🗺</div>
           <div id="mes-title">Drop your data here to get started</div>
           <div id="mes-sub">Drag any file onto the map, or choose a format below</div>
@@ -531,7 +532,7 @@
             <button class="btn btn-primary" onclick="document.getElementById('file-input').click()" style="font-family:var(--mono);font-size:11px;padding:8px 20px;">
               📂 Browse for a file
             </button>
-            <button class="btn btn-ghost" onclick="openURLModal();document.getElementById('map-empty-state').style.opacity='0.3';" style="font-family:var(--mono);font-size:11px;padding:8px 20px;">
+            <button class="btn btn-ghost" onclick="openURLModal();dismissEmptyState();" style="font-family:var(--mono);font-size:11px;padding:8px 20px;">
               🔗 Load from URL / ArcGIS Online
             </button>
           </div>
@@ -891,10 +892,6 @@
     <div style="display:flex;gap:4px;">
       <button id="shape-btn-circle" onclick="applyPointShape('circle')" title="Circle"
         style="flex:1;padding:3px 2px;font-size:15px;border:2px solid transparent;border-radius:4px;background:#edf0f3;cursor:pointer;line-height:1;">●</button>
-      <button id="shape-btn-square" onclick="applyPointShape('square')" title="Square"
-        style="flex:1;padding:3px 2px;font-size:15px;border:2px solid transparent;border-radius:4px;background:#edf0f3;cursor:pointer;line-height:1;">■</button>
-      <button id="shape-btn-triangle" onclick="applyPointShape('triangle')" title="Triangle"
-        style="flex:1;padding:3px 2px;font-size:15px;border:2px solid transparent;border-radius:4px;background:#edf0f3;cursor:pointer;line-height:1;">▲</button>
     </div>
   </div>
 
@@ -1608,6 +1605,12 @@
   <div class="ctx-item" onclick="mapCtxCopyDMS()"><span class="ctx-icon">📋</span> Copy DMS</div>
   <div class="ctx-sep"></div>
   <div class="ctx-item" onclick="mapCtxAddPoint()"><span class="ctx-icon">●</span> Add Point Here</div>
+  <div id="building-ctx-section" style="display:none;">
+    <div class="ctx-sep"></div>
+    <div style="padding:5px 10px;font-family:var(--mono);font-size:9px;color:var(--text3);letter-spacing:1px;background:var(--bg3);">🏢 OSM BUILDING</div>
+    <div id="building-ctx-info" style="padding:5px 12px;font-family:var(--mono);font-size:10px;color:var(--text2);line-height:1.6;"></div>
+    <div class="ctx-item" onclick="exportBuildingAsLayer()"><span class="ctx-icon">⊞</span> Export as Layer</div>
+  </div>
 </div>
 
 

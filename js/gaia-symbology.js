@@ -72,7 +72,7 @@ function openColorPickerForLayer(layerIdx) {
 
   if (isPointLayer) {
     const curShape = layer.pointShape || 'circle';
-    ['circle','square','triangle'].forEach(s => {
+    ['circle'].forEach(s => {
       const btn = document.getElementById('shape-btn-' + s);
       if (btn) {
         btn.style.borderColor = s === curShape ? '#0074a8' : 'transparent';
@@ -174,7 +174,7 @@ function applyNoFill() {
 function applyPointShape(shape) {
   const layer = state.layers[_colorPickerLayerIdx]; if (!layer) return;
   layer.pointShape = shape;
-  ['circle','square','triangle'].forEach(s => {
+  ['circle'].forEach(s => {
     const btn = document.getElementById('shape-btn-' + s);
     if (btn) {
       btn.style.borderColor = s === shape ? '#0074a8' : 'transparent';
@@ -207,30 +207,6 @@ function _applySymbologyToLeaflet(layer) {
   if (idx >= 0) _renderMapLayer(layer, idx);
 }
 
-
-// _makePointIcon is no longer needed for Leaflet markers — kept as stub for legend HTML
-function _makePointIcon(fillCol, outlineCol, noFill, shape, size) {
-  size = size || 12;
-  const fill = noFill ? 'none' : fillCol;
-  const sw = Math.max(1, size / 6);
-  let svgShape;
-  if (shape === 'square') {
-    svgShape = `<rect x="${sw/2}" y="${sw/2}" width="${size-sw}" height="${size-sw}" fill="${fill}" stroke="${outlineCol}" stroke-width="${sw}" rx="1"/>`;
-  } else if (shape === 'triangle') {
-    svgShape = `<polygon points="${size/2},${sw/2} ${size-sw/2},${size-sw/2} ${sw/2},${size-sw/2}" fill="${fill}" stroke="${outlineCol}" stroke-width="${sw}"/>`;
-  } else if (shape === 'diamond') {
-    svgShape = `<polygon points="${size/2},${sw/2} ${size-sw/2},${size/2} ${size/2},${size-sw/2} ${sw/2},${size/2}" fill="${fill}" stroke="${outlineCol}" stroke-width="${sw}"/>`;
-  } else {
-    const r = (size - sw) / 2;
-    svgShape = `<circle cx="${size/2}" cy="${size/2}" r="${r}" fill="${fill}" stroke="${outlineCol}" stroke-width="${sw}"/>`;
-  }
-  return `<svg xmlns="http://www.w3.org/2000/svg" width="${size}" height="${size}" viewBox="0 0 ${size} ${size}">${svgShape}</svg>`;
-}
-
-function _rebuildPointMarkers(layer) {
-  // No longer needed — MapLibre handles point rendering via circle layers
-  _applySymbologyToLeaflet(layer);
-}
 
 function applyLayerColor(color) {
   // Legacy: sets both fill and outline to same colour

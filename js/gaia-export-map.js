@@ -327,79 +327,16 @@ function _exportMapPDFWithTemplate(figNum, figTitle, imgSrc, dataSrc) {
   offscreen.width  = CW;
   offscreen.height = CH;
   const ctx = offscreen.getContext('2d', { willReadFrequently: true });
-  ctx.save();
-  ctx.beginPath(); ctx.rect(0, 0, CW, CH); ctx.clip();
-
-  function drawAllTiles(done) {
-    const allImgs = Array.from(mapEl.querySelectorAll('.leaflet-map-pane img'));
-    if (!allImgs.length) { done(); return; }
-    let remaining = allImgs.length;
-    function finish() { if (--remaining === 0) done(); }
-    allImgs.forEach(function(img) {
-      const ir = img.getBoundingClientRect();
-      // Offset by mapOffsetY to place within expanded canvas
-      const x = Math.round(ir.left - rect.left) + mapOffsetX;
-      const y = Math.round(ir.top  - rect.top)  + mapOffsetY;
-      const iw = Math.round(ir.width), ih = Math.round(ir.height);
-      if (!img.complete || !img.naturalWidth || x+iw<=0 || y+ih<=0 || x>=CW || y>=CH) { finish(); return; }
-      fetch(img.src).then(function(r){return r.blob();}).then(function(blob){
-        const objUrl = URL.createObjectURL(blob);
-        const tmp = new Image();
-        tmp.onload = function() { try{ctx.drawImage(tmp,x,y,iw,ih);}catch(e){} URL.revokeObjectURL(objUrl); finish(); };
-        tmp.onerror = function() { URL.revokeObjectURL(objUrl); finish(); };
-        tmp.src = objUrl;
-      }).catch(function(){finish();});
-    });
+  // Draw MapLibre GL canvas into offscreen at the cropped position
+  try {
+    const glCanvas = state.map.getCanvas();
+    ctx.drawImage(glCanvas, cropX, cropY, CW, CH, 0, 0, CW, CH);
+  } catch(e) {
+    ctx.fillStyle = isDark ? '#111920' : '#f0f2f4';
+    ctx.fillRect(0, 0, CW, CH);
   }
 
-  function drawVectors(cb) {
-    const svgEl = mapEl.querySelector('.leaflet-overlay-pane svg');
-    if (!svgEl) { cb(); return; }
-    const svgClone = svgEl.cloneNode(true);
-    svgClone.setAttribute('xmlns','http://www.w3.org/2000/svg');
-    // SVG paths are in the map's coordinate space — offset with a <g> translate
-    // so they land at the right position in the expanded canvas
-    const g = document.createElementNS('http://www.w3.org/2000/svg','g');
-    g.setAttribute('transform','translate('+mapOffsetX+','+mapOffsetY+')');
-    // Move all children of svgClone into g
-    while (svgClone.firstChild) g.appendChild(svgClone.firstChild);
-    svgClone.appendChild(g);
-    svgClone.setAttribute('width', CW); svgClone.setAttribute('height', CH);
-    svgClone.style.transform = ''; svgClone.removeAttribute('style');
-    const dataURI = 'data:image/svg+xml;charset=utf-8,' + encodeURIComponent(new XMLSerializer().serializeToString(svgClone));
-    const svgImg = new Image();
-    const guard = setTimeout(function(){svgImg.onload=svgImg.onerror=null;cb();},3000);
-    svgImg.onload = function() { clearTimeout(guard); try{ctx.drawImage(svgImg,0,0,CW,CH);}catch(e){} cb(); };
-    svgImg.onerror = function() { clearTimeout(guard); cb(); };
-    svgImg.src = dataURI;
-  }
-
-  function drawMarkers(cb) {
-    const markerEls = Array.from(mapEl.querySelectorAll('.leaflet-marker-pane .leaflet-marker-icon'));
-    if (!markerEls.length) { cb(); return; }
-    const jobs = markerEls.map(function(el) {
-      const mr = el.getBoundingClientRect();
-      const x = Math.round(mr.left - rect.left) + mapOffsetX;
-      const y = Math.round(mr.top  - rect.top)  + mapOffsetY;
-      const w = Math.round(mr.width)||14, h = Math.round(mr.height)||14;
-      let svgStr = el.innerHTML.trim(); if (!svgStr) return null;
-      svgStr = svgStr.replace(/\s+xmlns="[^"]*"/g,'');
-      if (svgStr.startsWith('<svg')) svgStr = svgStr.replace('<svg','<svg xmlns="http://www.w3.org/2000/svg"');
-      else svgStr = '<svg xmlns="http://www.w3.org/2000/svg" width="'+w+'" height="'+h+'">'+svgStr+'</svg>';
-      return {x,y,w,h,svgStr};
-    }).filter(function(j){return j&&j.svgStr&&j.x+j.w>0&&j.y+j.h>0&&j.x<CW&&j.y<CH;});
-    if (!jobs.length){cb();return;}
-    let remaining=jobs.length;
-    function done(){if(--remaining<=0)cb();}
-    jobs.forEach(function(job){
-      const dataURI='data:image/svg+xml;charset=utf-8,'+encodeURIComponent(job.svgStr);
-      const img=new Image(); const guard=setTimeout(function(){img.onload=img.onerror=null;done();},1500);
-      img.onload=function(){clearTimeout(guard);try{ctx.drawImage(img,job.x,job.y,job.w,job.h);}catch(e){}done();};
-      img.onerror=function(){clearTimeout(guard);done();}; img.src=dataURI;
-    });
-  }
-
-  // ── Compute real-world scale from Leaflet ────────────────────────────────────
+  // ── Compute real-world scale ────────────────────────────────────────────────
   function getMapScaleInfo() {
     if (!state.map) return { scaleStr: 'Unknown', kmPerPt: 1 };
     const bounds = state.map.getBounds();
@@ -849,120 +786,22 @@ function _exportMapPDFWithTemplate(figNum, figTitle, imgSrc, dataSrc) {
     });
   }
 
-  // ── Run canvas pipeline then build PDF ──────────────────────────────────────
-
-  // ── Labels (divIcon text) ──────────────────────────────────────────────────
-  function drawLabels(cb) {
-    const labelEls = Array.from(
-      mapEl.querySelectorAll('.leaflet-marker-pane .leaflet-marker-icon span')
-    );
-    if (!labelEls.length) { cb(); return; }
-
-    ctx.save();
-    labelEls.forEach(function(span) {
-      const sr = span.getBoundingClientRect();
-      if (sr.width === 0 && sr.height === 0) return;
-
-      const x = Math.round(sr.left - rect.left) + mapOffsetX;
-      const y = Math.round(sr.top  - rect.top)  + mapOffsetY;
-
-      const style = span.getAttribute('style') || '';
-      const fsMatch = style.match(/font-size:\s*([\d.]+)px/);
-      const colMatch = style.match(/color:\s*([^;]+)/);
-      const fontSize = fsMatch ? parseFloat(fsMatch[1]) : 9;
-      const color    = colMatch ? colMatch[1].trim() : '#222';
-
-      ctx.font = fontSize + 'px Arial,sans-serif';
-      ctx.textBaseline = 'top';
-      ctx.fillStyle = 'rgba(255,255,255,0.85)';
-      for (var dx = -1; dx <= 1; dx++) {
-        for (var dy = -1; dy <= 1; dy++) {
-          if (dx !== 0 || dy !== 0) ctx.fillText(span.textContent, x + dx, y + dy);
-        }
-      }
-      ctx.fillStyle = color;
-      ctx.fillText(span.textContent, x, y);
-    });
-    ctx.restore();
-    cb();
-  }
-  drawAllTiles(function() {
-    drawVectors(function() {
-      drawMarkers(function() {
-        drawLabels(function() {
-        ctx.restore();
-
-        // Use toBlob (same as working PNG export). Then read bytes via
-        // arrayBuffer() — avoids atob() on huge base64 strings which can fail.
-        function captureAndBuild(canvas) {
-          try {
-            canvas.toBlob(function(blob) {
-              if (!blob) {
-                toast('Canvas capture returned null blob', 'error');
-                return;
-              }
-              // Use arrayBuffer() if available (modern browsers), else FileReader
-              if (blob.arrayBuffer) {
-                blob.arrayBuffer().then(function(ab) {
-                  buildPDF(new Uint8Array(ab));
-                }).catch(function(err) {
-                  toast('Canvas read failed: ' + err.message, 'error');
-                });
-              } else {
-                var fr = new FileReader();
-                fr.onload = function() { buildPDF(new Uint8Array(fr.result)); };
-                fr.onerror = function() { toast('Canvas read failed', 'error'); };
-                fr.readAsArrayBuffer(blob);
-              }
-            }, 'image/png');
-          } catch(e) {
-            toast('Canvas capture error: ' + e.message, 'error');
-          }
-        }
-
-        // Try the main canvas first. If tainted, fall back to vectors-only canvas.
-        try {
-          offscreen.toDataURL('image/png'); // probe for taint (throws SecurityError)
-          captureAndBuild(offscreen);
-        } catch(e) {
-          // Canvas is tainted by cross-origin tiles — use a clean vectors-only canvas
-          var fallback = document.createElement('canvas');
-          fallback.width = CW; fallback.height = CH;
-          var fctx = fallback.getContext('2d');
-          fctx.fillStyle = isDark ? '#111920' : '#f0f2f4';
-          fctx.fillRect(0, 0, CW, CH);
-          var svgEl2 = mapEl.querySelector('.leaflet-overlay-pane svg');
-          if (svgEl2) {
-            var clone2 = svgEl2.cloneNode(true);
-            clone2.setAttribute('xmlns', 'http://www.w3.org/2000/svg');
-            clone2.setAttribute('width', CW); clone2.setAttribute('height', CH);
-            // Apply same vertical offset
-            var g2 = document.createElementNS('http://www.w3.org/2000/svg','g');
-            g2.setAttribute('transform','translate('+mapOffsetX+','+mapOffsetY+')');
-            while (clone2.firstChild) g2.appendChild(clone2.firstChild);
-            clone2.appendChild(g2);
-            clone2.style.transform = ''; clone2.removeAttribute('style');
-            var si2 = new Image();
-            var guard2 = setTimeout(function() {
-              si2.onload = si2.onerror = null;
-              captureAndBuild(fallback);
-            }, 3000);
-            si2.onload = function() {
-              clearTimeout(guard2);
-              try { fctx.drawImage(si2, 0, 0, CW, CH); } catch(e2) {}
-              captureAndBuild(fallback);
-            };
-            si2.onerror = function() { clearTimeout(guard2); captureAndBuild(fallback); };
-            si2.src = 'data:image/svg+xml;charset=utf-8,' +
-              encodeURIComponent(new XMLSerializer().serializeToString(clone2));
-          } else {
-            captureAndBuild(fallback);
-          }
-        }
-        }); // drawLabels
+  // ── Capture offscreen canvas and build PDF ──────────────────────────────────
+  offscreen.toBlob(function(blob) {
+    if (!blob) { toast('Canvas capture returned null blob', 'error'); return; }
+    if (blob.arrayBuffer) {
+      blob.arrayBuffer().then(function(ab) {
+        buildPDF(new Uint8Array(ab));
+      }).catch(function(err) {
+        toast('Canvas read failed: ' + err.message, 'error');
       });
-    });
-  });
+    } else {
+      var fr = new FileReader();
+      fr.onload = function() { buildPDF(new Uint8Array(fr.result)); };
+      fr.onerror = function() { toast('Canvas read failed', 'error'); };
+      fr.readAsArrayBuffer(blob);
+    }
+  }, 'image/png');
 }
 
 // ══════════════════════════════════════════════════

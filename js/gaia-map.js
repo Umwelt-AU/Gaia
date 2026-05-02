@@ -1,6 +1,45 @@
 // gaia-map.js — Map init, MapLibre style builder, basemap, CRS modal, resizable panels
+
+// ── SKY GRADIENT (time-of-day background behind the WebGL canvas) ────────────
+const _SKY_GRADIENTS = [
+  '#00000c',                                                                            // 00:00 midnight
+  'linear-gradient(to bottom, #020111 85%, #191621 100%)',                             // 01:00
+  'linear-gradient(to bottom, #020111 60%, #20202c 100%)',                             // 02:00
+  'linear-gradient(to bottom, #020111 10%, #3a3a52 100%)',                             // 03:00
+  'linear-gradient(to bottom, #20202c 0%, #515175 100%)',                              // 04:00
+  'linear-gradient(to bottom, #40405c 0%, #6f71aa 80%, #8a76ab 100%)',                // 05:00
+  'linear-gradient(to bottom, #4a4969 0%, #7072ab 50%, #cd82a0 100%)',                // 06:00 pre-dawn
+  'linear-gradient(to bottom, #757abf 0%, #8583be 60%, #eab0d1 100%)',                // 07:00 dawn
+  'linear-gradient(to bottom, #82addb 0%, #ebb2b1 100%)',                              // 08:00 sunrise
+  'linear-gradient(to bottom, #94c5f8 1%, #a6e6ff 70%, #b1b5ea 100%)',               // 09:00
+  'linear-gradient(to bottom, #b7eaff 0%, #94dfff 100%)',                              // 10:00
+  'linear-gradient(to bottom, #9be2fe 0%, #67d1fb 100%)',                              // 11:00
+  'linear-gradient(to bottom, #90dffe 0%, #38a3d1 100%)',                              // 12:00 noon
+  'linear-gradient(to bottom, #57c1eb 0%, #246fa8 100%)',                              // 13:00
+  'linear-gradient(to bottom, #2d91c2 0%, #1e528e 100%)',                              // 14:00
+  'linear-gradient(to bottom, #2473ab 0%, #1e528e 70%, #5b7983 100%)',                // 15:00
+  'linear-gradient(to bottom, #1e528e 0%, #265889 50%, #9da671 100%)',                // 16:00
+  'linear-gradient(to bottom, #1e528e 0%, #728a7c 50%, #e9ce5d 100%)',                // 17:00
+  'linear-gradient(to bottom, #154277 0%, #576e71 30%, #e1c45e 70%, #b26339 100%)',   // 18:00 sunset
+  'linear-gradient(to bottom, #163C52 0%, #4F4F47 30%, #C5752D 60%, #B7490F 80%, #2F1107 100%)', // 19:00
+  'linear-gradient(to bottom, #071B26 0%, #071B26 30%, #8A3B12 80%, #240E03 100%)',   // 20:00
+  'linear-gradient(to bottom, #010A10 30%, #59230B 80%, #2F1107 100%)',               // 21:00
+  'linear-gradient(to bottom, #090401 50%, #4B1D06 100%)',                             // 22:00
+  'linear-gradient(to bottom, #00000c 80%, #150800 100%)',                             // 23:00
+];
+
+function _applySkyGradient() {
+  const mapEl = document.getElementById('map');
+  if (!mapEl) return;
+  const hour = new Date().getHours();
+  mapEl.style.background = _SKY_GRADIENTS[hour] || _SKY_GRADIENTS[0];
+}
+
 // ── INIT ──
 window.addEventListener('DOMContentLoaded', () => {
+  _applySkyGradient();
+  // Re-apply every 5 minutes so it tracks the time of day during long sessions
+  setInterval(_applySkyGradient, 5 * 60 * 1000);
   // Restore saved session
   setTimeout(() => { loadSession(); _checkURLSession(); }, 150);
 
@@ -51,17 +90,96 @@ state.map.on('load', () => {
       'hillshade-highlight-color': '#f0f4f8',
       'hillshade-illumination-direction': 315,
       'hillshade-illumination-anchor': 'map',
-      'hillshade-exaggeration': 0.3
+      'hillshade-exaggeration': 0.4
     }
   });
 
-  // --- 4. Sky (atmospheric gradient above horizon when pitched) ---
-  try {
-    state.map.addLayer({
-      id: 'sky', type: 'sky',
-      paint: { 'sky-type': 'atmosphere', 'sky-atmosphere-sun': [0.0, 90.0], 'sky-atmosphere-sun-intensity': 15 }
-    });
-  } catch(_) {}
+
+  // --- 4. 3D Buildings (MapTiler v3 vector tiles, OSM building footprints + heights) ---
+  state.map.addSource('maptiler-v3', {
+    type: 'vector',
+    url: `https://api.maptiler.com/tiles/v3/tiles.json?key=${GAIA_CONFIG.mapTilerKey}`
+  });
+  state.map.addLayer({
+    id: '3d-buildings',
+    source: 'maptiler-v3',
+    'source-layer': 'building',
+    type: 'fill-extrusion',
+    minzoom: 13,
+    paint: {
+      'fill-extrusion-color': [
+        'interpolate', ['linear'], ['get', 'render_height'],
+        0,   '#9fb3ba',
+        20,  '#5e6b71',
+        60,  '#454f55',
+        200, '#293236'
+      ],
+      'fill-extrusion-height':   ['coalesce', ['get', 'render_height'],   10],
+      'fill-extrusion-base':     ['coalesce', ['get', 'render_min_height'], 0],
+      'fill-extrusion-opacity':  0.85
+    }
+  });
+
+  // Invisible fill companion layer — same source as 3d-buildings but type:fill.
+  // fill layers return correct WGS84 polygon geometry from click events;
+  // fill-extrusion returns tile-coordinate geometry which is unusable for export.
+  state.map.addLayer({
+    id: '3d-buildings-fill',
+    source: 'maptiler-v3',
+    'source-layer': 'building',
+    type: 'fill',
+    minzoom: 13,
+    paint: {
+      'fill-color':   '#000000',
+      'fill-opacity': 0
+    }
+  });
+
+  // Highlight layer — initially filters to nothing, updated on building click
+  state.map.addLayer({
+    id: '3d-buildings-highlight',
+    source: 'maptiler-v3',
+    'source-layer': 'building',
+    type: 'fill-extrusion',
+    minzoom: 13,
+    filter: ['==', ['get', 'osm_id'], ''],
+    paint: {
+      'fill-extrusion-color':   '#14b1e7',
+      'fill-extrusion-height':  ['coalesce', ['get', 'render_height'],   10],
+      'fill-extrusion-base':    ['coalesce', ['get', 'render_min_height'], 0],
+      'fill-extrusion-opacity': 0.75
+    }
+  });
+
+  // Left-click: use fill layer for correct geometry, highlight via extrusion layer
+  state.map.on('click', '3d-buildings-fill', function(e) {
+    if (e.originalEvent._featureClicked) return;
+    const feat = e.features && e.features[0];
+    if (!feat) return;
+    state._hoveredBuilding = feat;
+    const osmId = feat.properties.osm_id || feat.id || '';
+    state.map.setFilter('3d-buildings-highlight', ['==', ['get', 'osm_id'], osmId]);
+    e.originalEvent._featureClicked = true;
+  });
+
+  // Right-click: use fill layer for correct geometry, open shared context menu
+  state.map.on('contextmenu', '3d-buildings-fill', function(e) {
+    e.preventDefault();
+    const feat = e.features && e.features[0];
+    if (!feat) return;
+    state._hoveredBuilding = feat;
+    const osmId = feat.properties.osm_id || feat.id || '';
+    state.map.setFilter('3d-buildings-highlight', ['==', ['get', 'osm_id'], osmId]);
+    showMapCtxMenu({ latlng: { lat: e.lngLat.lat, lng: e.lngLat.lng }, originalEvent: e.originalEvent });
+    e.originalEvent._buildingCtxHandled = true;
+  });
+
+  state.map.on('mouseenter', '3d-buildings-fill', function() {
+    state.map.getCanvas().style.cursor = 'pointer';
+  });
+  state.map.on('mouseleave', '3d-buildings-fill', function() {
+    state.map.getCanvas().style.cursor = '';
+  });
 
     // Initialise the draw source (used by measure, SBL, create, viewshed, elevation tools)
     state.map.addSource('draw-source', { type: 'geojson', data: { type: 'FeatureCollection', features: [] } });
@@ -140,12 +258,18 @@ state.map.on('load', () => {
   // ── Right-click context menu ──────────────────────────────────────────
   state.map.on('contextmenu', function(e) {
     e.preventDefault();
+    if (e.originalEvent._buildingCtxHandled) return;
     showMapCtxMenu({ latlng: { lat: e.lngLat.lat, lng: e.lngLat.lng }, originalEvent: e.originalEvent });
   });
 
-  // ── Click on empty map area → clear selection ─────────────────────────
+  // ── Click on empty map area → clear selection + building highlight ───────
   state.map.on('click', function(e) {
     if (e.originalEvent._featureClicked) return;
+    // Clear building highlight
+    if (state._hoveredBuilding) {
+      state._hoveredBuilding = null;
+      try { state.map.setFilter('3d-buildings-highlight', ['==', ['get', 'osm_id'], '']); } catch(_) {}
+    }
     if (widgetState.mode) { handleWidgetClick(e); return; }
     if (state.selectedFeatureIndices && state.selectedFeatureIndices.size > 0) {
       state.selectedFeatureIndices = new Set();

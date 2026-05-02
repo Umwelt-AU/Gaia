@@ -45,7 +45,7 @@ js/
   gaia-export-map.js    PNG map export, PDF Umwelt template export
   gaia-tools.js         CSV loader (auto-detect lat/lng/WKT), create-features undo/redo, service catalogue
   agol.js               ArcGIS Online OAuth + REST API (search, folders, feature layers, hosted layers)
-  umwelt-logo.js        Umwelt 2024 logo as base-64 constant (_UMWELT_LOGO_2024_B64)
+  umwelt-logo.js        Umwelt 2024 logo as base-64 constant (_UMWELT_LOGO_B64)
   template-pdf.js       Embedded PDF template assets
 package.json            Dev-only (vitest)
 tests/gaia.test.js      Unit tests for pure utility functions
@@ -162,7 +162,7 @@ Heavy spatial operations are offloaded to `js/gaia-worker.js` to keep the UI res
 ## Architecture Notes
 
 - **No build step.** Files are loaded as plain `<script>` tags. Adding a bundler is not planned.
-- **MapLibre GL JS 3.6** is the map engine. Leaflet is not used.
+- **MapLibre GL JS 3.6** is the map engine. Leaflet is not used. Do not add Leaflet-based code paths.
 - **3D terrain** uses MapTiler terrain-rgb-v2. The API key is stored in `gaia-config.js` as `GAIA_CONFIG.mapTilerKey`.
 - **Proj4js** handles all CRS reprojection. All data is stored and rendered in WGS84; reprojection happens at export time.
 - **GeoPackage** support uses `sql.js` (SQLite via WASM). The sql-wasm.wasm file is loaded from the CDN script tag.
@@ -203,3 +203,22 @@ All AGOL REST calls use POST to `www.arcgis.com` (not the org portal URL) for co
 - UI functions manipulate the DOM and call `updateLayerList()` / `updateLegend()` / `updateAttrTable()` to re-render.
 - `toast(message, type)` for user feedback (`'success'`, `'error'`, `'info'`).
 - Async operations use `async/await` with `try/catch`; network calls respect `CONSTANTS.FETCH_TIMEOUT_MS` via `AbortController`.
+- **No Leaflet.** All map rendering uses MapLibre GL `state.map`. Do not query `.leaflet-*` DOM elements — they do not exist.
+- Map/PDF export uses `state.map.getCanvas()` to capture the WebGL canvas. Both PNG and PDF export follow this pattern.
+- Undo/redo layer rebuild uses `_rebuildMapLayer(layerIdx)` in `gaia-tools.js`.
+
+---
+
+## Dead Code Removed (2025-05)
+
+The following were removed during a cleanup pass — do not re-add:
+
+| Removed | File | Reason |
+|---------|------|--------|
+| `_is3DActive`, `_map3D` vars | `gaia-layers.js` | Never set; 3D secondary map not implemented |
+| `_sync3DLayerVisibility()` | `gaia-layers.js` | Called only when `_is3DActive` (always false) |
+| `_refresh3DLayers()` | `gaia-layers.js` | Same — always early-returned |
+| `_refreshLeafletZOrder()` | `gaia-layers.js` | Alias for `refreshLayerZOrder()`; call site updated to call directly |
+| `_makePointIcon()` | `gaia-symbology.js` | Leaflet marker helper, no longer needed with MapLibre |
+| `_rebuildPointMarkers()` | `gaia-symbology.js` | Leaflet marker rebuild, no longer needed |
+| Leaflet tile/vector/marker/label draw pipeline in `_exportMapPDFWithTemplate` | `gaia-export-map.js` | Queried non-existent `.leaflet-*` DOM nodes; replaced with `state.map.getCanvas()` draw (also fixed a bug where the PDF exported a blank map) |

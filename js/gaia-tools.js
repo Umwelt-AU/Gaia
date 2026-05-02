@@ -528,7 +528,7 @@ function createUndo() {
       createState.featureRedoStack.push({ layerIdx: entry.layerIdx, featJson: JSON.stringify(removedFeat) });
     }
     // Rebuild the Leaflet layer from remaining features
-    _rebuildLeafletLayer(entry.layerIdx);
+    _rebuildMapLayer(entry.layerIdx);
     updateCreateLayerList();
     updateLayerList();
     updateSelectionCount();
@@ -555,7 +555,7 @@ function createRedo() {
 }
 
 // Rebuild the MapLibre layer source after features are added/removed
-function _rebuildLeafletLayer(layerIdx) {
+function _rebuildMapLayer(layerIdx) {
   const layer = state.layers[layerIdx];
   if (!layer || layer.isTile) return;
   _renderMapLayer(layer, layerIdx);

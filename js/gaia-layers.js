@@ -5,9 +5,6 @@
 // Data layers sit above basemap/terrain but below draw layers.
 const _DRAW_LAYERS = ['draw-fill','draw-line','draw-circle','draw-preview-fill','draw-preview-line'];
 
-// 3D map state — managed by gaia-widgets.js if a secondary 3D map is ever used
-let _is3DActive = false;
-let _map3D = null;
 
 function _layerMapId(idx) { return 'gaia-layer-' + idx; }
 
@@ -97,6 +94,7 @@ function _renderMapLayer(layer, idx) {
         state.map.setLayoutProperty(mapId + '-circle', 'visibility', vis);
         state.map.setPaintProperty(mapId + '-circle', 'circle-color', fillExpr);
         state.map.setPaintProperty(mapId + '-circle', 'circle-stroke-color', strokeExpr);
+        state.map.setPaintProperty(mapId + '-circle', 'circle-stroke-width', layer.outlineWidth ?? 1.5);
         state.map.setPaintProperty(mapId + '-circle', 'circle-radius', sz);
         state.map.setPaintProperty(mapId + '-circle', 'circle-opacity', lineOpExpr);
       } catch(_) {}
@@ -681,7 +679,7 @@ function handleLayerDrop(e, targetLayerIdx) {
       if (srcIdx < state.activeLayerIndex && insertAt >= state.activeLayerIndex) state.activeLayerIndex--;
       else if (srcIdx > state.activeLayerIndex && insertAt <= state.activeLayerIndex) state.activeLayerIndex++;
     }
-    _refreshLeafletZOrder();
+    refreshLayerZOrder();
     updateLayerList(); updateExportLayerList(); updateSBLLayerList(); updateDQALayerList();
 
   } else if (_drag.kind === 'group') {
@@ -809,13 +807,10 @@ function refreshLayerZOrder() {
   });
 }
 
-function _refreshLeafletZOrder() { refreshLayerZOrder(); } // alias for compatibility
-
 function toggleLayerVisibility(i) {
   const l = state.layers[i];
   l.visible = !l.visible;
   _renderMapLayer(l, i);
-  _sync3DLayerVisibility(i);
   updateLayerList();
 }
 
@@ -830,7 +825,6 @@ function _removeLayerImmediate(i) {
   }
   updateLayerList(); updateExportLayerList();
   _updateEmptyState();
-  _refresh3DLayers();
   if (state.layers.length) setActiveLayer(state.activeLayerIndex); else clearStats();
 }
 
@@ -843,35 +837,6 @@ function setLayerOpacity(idx, val) {
   saveSession();
 }
 
-// Sync a single layer's visibility into the live MapLibre 3D map
-function _sync3DLayerVisibility(i) {
-  if (!_is3DActive || !_map3D) return;
-  const l = state.layers[i];
-  if (!l || l.isTile || !l.geojson) return;
-  const srcId = '3d-gaia-' + i;
-  const vis   = l.visible ? 'visible' : 'none';
-  const layerIds = [srcId, srcId + '-fill', srcId + '-stroke'];
-  layerIds.forEach(lid => {
-    try {
-      if (_map3D.getLayer(lid)) _map3D.setLayoutProperty(lid, 'visibility', vis);
-    } catch (_) {}
-  });
-}
-
-// Fully rebuild all GeoJSON layers in the 3D map (called when layers are added/removed)
-function _refresh3DLayers() {
-  if (!_is3DActive || !_map3D) return;
-  // Remove all existing gaia layers from the 3D map
-  state.layers.forEach((l, i) => {
-    const srcId = '3d-gaia-' + i;
-    [srcId, srcId + '-fill', srcId + '-stroke'].forEach(lid => {
-      try { if (_map3D.getLayer(lid)) _map3D.removeLayer(lid); } catch (_) {}
-    });
-    try { if (_map3D.getSource(srcId)) _map3D.removeSource(srcId); } catch (_) {}
-  });
-  // Re-add all visible layers
-  _add3DGaiaLayers();
-}
 
 function removeLayer(i) {
   const layer = state.layers[i];

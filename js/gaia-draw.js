@@ -241,7 +241,8 @@ function finaliseFeature() {
     properties: { Type: '', Description: '', Comment: '' }
   };
   layer.geojson.features.push(feat);
-  
+  _rebuildMapLayer(layerIdx);
+
   // Push to undo stack, clear redo stack
   createState.featureUndoStack.push({ layerIdx, featJson: JSON.stringify(feat) });
   createState.featureRedoStack = [];

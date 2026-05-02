@@ -371,8 +371,27 @@ function showMapCtxMenu(e) {
     });
   }
 
+  // Building section — shown only when a building is highlighted
+  const buildingSection = document.getElementById('building-ctx-section');
+  const buildingInfo    = document.getElementById('building-ctx-info');
+  const feat = state._hoveredBuilding;
+  if (buildingSection) {
+    if (feat) {
+      const p = feat.properties || {};
+      const lines = [];
+      if (p.name)           lines.push('Name: ' + p.name);
+      if (p.render_height)  lines.push('Height: ' + Math.round(p.render_height) + ' m');
+      if (p.building)       lines.push('Type: ' + p.building);
+      if (p.osm_id)         lines.push('OSM ID: ' + p.osm_id);
+      if (buildingInfo) buildingInfo.innerHTML = lines.length ? lines.join('<br>') : 'No attributes';
+      buildingSection.style.display = 'block';
+    } else {
+      buildingSection.style.display = 'none';
+    }
+  }
+
   const x = Math.min(e.originalEvent.clientX, window.innerWidth - 310);
-  const y = Math.min(e.originalEvent.clientY, window.innerHeight - 220);
+  const y = Math.min(e.originalEvent.clientY, window.innerHeight - 260);
   menu.style.left = x + 'px';
   menu.style.top  = y + 'px';
   menu.style.display = 'block';
@@ -381,6 +400,39 @@ function showMapCtxMenu(e) {
 
 function closeMapCtxMenu() {
   document.getElementById('map-ctx-menu').style.display = 'none';
+}
+
+function exportBuildingAsLayer() {
+  closeMapCtxMenu();
+  const feat = state._hoveredBuilding;
+  if (!feat || !feat.geometry) { toast('No building selected', 'error'); return; }
+
+  const p = feat.properties || {};
+  const name = p.name
+    ? p.name
+    : (p.building && p.building !== 'yes' ? p.building : 'Building') +
+      (p.osm_id ? ' ' + p.osm_id : '');
+
+  const geojson = {
+    type: 'FeatureCollection',
+    features: [{
+      type: 'Feature',
+      geometry: feat.geometry,
+      properties: Object.assign({}, p)
+    }]
+  };
+
+  addLayer(geojson, name.trim() || 'Building');
+
+  // Clear highlight
+  state._hoveredBuilding = null;
+  try { state.map.setFilter('3d-buildings-highlight', ['==', ['get', 'osm_id'], '']); } catch(_) {}
+
+  if (feat.geometry.type && feat.geometry.type.includes('Multi')) {
+    toast('Building exported — geometry may be tile-clipped at boundaries', 'info');
+  } else {
+    toast('Building exported as layer ✓', 'success');
+  }
 }
 
 function mapCtxCopyLatLng() {
@@ -834,28 +886,9 @@ function layerGeomIcon(layer) {
   if (gt.includes('point')) {
     const shape = layer.pointShape || 'circle';
     const f = layer.noFill ? 'none' : c;
-    if (shape === 'square') {
-      return `<svg viewBox="0 0 16 16" fill="none" xmlns="http://www.w3.org/2000/svg">
-        <rect x="3" y="3" width="10" height="10" rx="1" fill="${f}" stroke="${c}" stroke-width="1.5" opacity="0.9"/>
-      </svg>`;
-    } else if (shape === 'triangle') {
-      return `<svg viewBox="0 0 16 16" fill="none" xmlns="http://www.w3.org/2000/svg">
-        <polygon points="8,2 14,14 2,14" fill="${f}" stroke="${c}" stroke-width="1.5" opacity="0.9"/>
-      </svg>`;
-    } else if (shape === 'diamond') {
-      return `<svg viewBox="0 0 16 16" fill="none" xmlns="http://www.w3.org/2000/svg">
-        <polygon points="8,1 15,8 8,15 1,8" fill="${f}" stroke="${c}" stroke-width="1.5" opacity="0.9"/>
-      </svg>`;
-    } else if (shape === 'star') {
-      return `<svg viewBox="0 0 16 16" fill="none" xmlns="http://www.w3.org/2000/svg">
-        <polygon points="8,1 9.9,6.1 15.5,6.1 11.1,9.4 12.7,14.7 8,11.4 3.3,14.7 4.9,9.4 0.5,6.1 6.1,6.1" fill="${f}" stroke="${c}" stroke-width="1" opacity="0.9"/>
-      </svg>`;
-    } else {
-      // Default circle
-      return `<svg viewBox="0 0 16 16" fill="none" xmlns="http://www.w3.org/2000/svg">
-        <circle cx="8" cy="8" r="5" fill="${c}" stroke="${c}" stroke-width="0.5" opacity="0.9"/>
-      </svg>`;
-    }
+    return `<svg viewBox="0 0 16 16" fill="none" xmlns="http://www.w3.org/2000/svg">
+      <circle cx="8" cy="8" r="5" fill="${c}" stroke="${c}" stroke-width="0.5" opacity="0.9"/>
+    </svg>`;
   }
   if (gt.includes('line')) {
     // Diagonal line with nodes

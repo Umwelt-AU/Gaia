@@ -34,14 +34,8 @@ function _makeLegendEntryHTML(layer) {
   if (isPoint) {
     const size = 14;
     let svgShape;
-    if (shape === 'square') {
-      svgShape = `<rect x="2" y="2" width="${size-4}" height="${size-4}" fill="${noFill?'none':color}" stroke="${outline}" stroke-width="1.5" rx="1"/>`;
-    } else if (shape === 'triangle') {
-      svgShape = `<polygon points="${size/2},2 ${size-2},${size-2} 2,${size-2}" fill="${noFill?'none':color}" stroke="${outline}" stroke-width="1.5"/>`;
-    } else {
-      const r=(size-4)/2;
-      svgShape = `<circle cx="${size/2}" cy="${size/2}" r="${r}" fill="${noFill?'none':color}" stroke="${outline}" stroke-width="1.5"/>`;
-    }
+    const r=(size-4)/2;
+    svgShape = `<circle cx="${size/2}" cy="${size/2}" r="${r}" fill="${noFill?'none':color}" stroke="${outline}" stroke-width="1.5"/>`;
     swatch = `<svg xmlns="http://www.w3.org/2000/svg" width="${size}" height="${size}" viewBox="0 0 ${size} ${size}" style="flex-shrink:0;">${svgShape}</svg>`;
   } else if (isLine) {
     swatch = `<div style="width:28px;height:3px;background:${color};border-radius:2px;flex-shrink:0;margin:5px 0;"></div>`;
@@ -94,15 +88,7 @@ function updateLegend() {
         if (isPoint) {
           const sz = 12;
           let svgShape;
-          if (shape === 'square') {
-            svgShape = `<rect x="1" y="1" width="${sz-2}" height="${sz-2}" fill="${c.color}" stroke="${c.color}" stroke-width="1" rx="1" opacity="0.9"/>`;
-          } else if (shape === 'triangle') {
-            svgShape = `<polygon points="${sz/2},1 ${sz-1},${sz-1} 1,${sz-1}" fill="${c.color}" stroke="${c.color}" stroke-width="1" opacity="0.9"/>`;
-          } else if (shape === 'diamond') {
-            svgShape = `<polygon points="${sz/2},1 ${sz-1},${sz/2} ${sz/2},${sz-1} 1,${sz/2}" fill="${c.color}" stroke="${c.color}" stroke-width="1" opacity="0.9"/>`;
-          } else {
-            svgShape = `<circle cx="${sz/2}" cy="${sz/2}" r="${sz/2-1}" fill="${c.color}" stroke="${c.color}" stroke-width="0.5" opacity="0.9"/>`;
-          }
+          svgShape = `<circle cx="${sz/2}" cy="${sz/2}" r="${sz/2-1}" fill="${c.color}" stroke="${c.color}" stroke-width="0.5" opacity="0.9"/>`;
           swatch = `<svg xmlns="http://www.w3.org/2000/svg" width="${sz}" height="${sz}" viewBox="0 0 ${sz} ${sz}" style="flex-shrink:0;">${svgShape}</svg>`;
         } else if (isLine) {
           swatch = `<div style="width:22px;height:3px;background:${c.color};border-radius:2px;flex-shrink:0;margin:4px 0;"></div>`;
@@ -161,16 +147,8 @@ function _makeLegendSwatchHTML(layer) {
   if (isPoint) {
     const size = 14;
     let svgShape;
-    if (shape === 'square') {
-      svgShape = `<rect x="2" y="2" width="${size-4}" height="${size-4}" fill="${noFill?'none':color}" stroke="${outline}" stroke-width="1.5" rx="1"/>`;
-    } else if (shape === 'triangle') {
-      svgShape = `<polygon points="${size/2},2 ${size-2},${size-2} 2,${size-2}" fill="${noFill?'none':color}" stroke="${outline}" stroke-width="1.5"/>`;
-    } else if (shape === 'diamond') {
-      svgShape = `<polygon points="${size/2},1 ${size-1},${size/2} ${size/2},${size-1} 1,${size/2}" fill="${noFill?'none':color}" stroke="${outline}" stroke-width="1.5"/>`;
-    } else {
-      const r=(size-4)/2;
-      svgShape = `<circle cx="${size/2}" cy="${size/2}" r="${r}" fill="${noFill?'none':color}" stroke="${outline}" stroke-width="1.5"/>`;
-    }
+    const r=(size-4)/2;
+    svgShape = `<circle cx="${size/2}" cy="${size/2}" r="${r}" fill="${noFill?'none':color}" stroke="${outline}" stroke-width="1.5"/>`;
     return `<svg xmlns="http://www.w3.org/2000/svg" width="${size}" height="${size}" viewBox="0 0 ${size} ${size}" style="flex-shrink:0;">${svgShape}</svg>`;
   } else if (isLine) {
     return `<div style="width:28px;height:3px;background:${color};border-radius:2px;flex-shrink:0;margin:5px 0;"></div>`;
@@ -233,14 +211,23 @@ function legendDragEnd(e) {
 }
 
 // ── EMPTY STATE VISIBILITY ───────────────────────────────────────────────────
+let _mesDismissed = false;
+
+function dismissEmptyState() {
+  _mesDismissed = true;
+  const mes = document.getElementById('map-empty-state');
+  if (!mes) return;
+  mes.style.display = 'none';
+  mes.style.pointerEvents = 'none';
+}
+
 function _updateEmptyState() {
+  if (_mesDismissed) return;
   const mes = document.getElementById('map-empty-state');
   if (!mes) return;
   const hasLayers = state.layers.some(l => l != null);
   if (hasLayers) {
-    mes.classList.add('mes-hidden');
-    mes.style.display = 'none';
-    mes.style.pointerEvents = 'none';
+    dismissEmptyState();
   } else {
     mes.style.display = 'flex';
     mes.style.pointerEvents = '';
