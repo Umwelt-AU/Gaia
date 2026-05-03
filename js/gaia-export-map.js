@@ -820,4 +820,4 @@ const _COLOR_RAMPS = {
   viridis:  ['#440154','#31688e','#35b779','#fde725','#21908c'],
 };
 
-let _classifyState = { breaks: [], colors: [], fieldType: 'string' };
+//let _classifyState = { breaks: [], colors: [], fieldType: 'string' };

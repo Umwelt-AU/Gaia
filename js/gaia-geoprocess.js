@@ -3,8 +3,13 @@
 // Pure-JS spatial operations. All work in WGS84 (degrees).
 // Distances/buffers use a metres→degrees approximation via deg/m at the
 // centroid latitude, which is adequate for planning/GIS tasks at typical scales.
-
 // Helpers
+
+let drawMode = null;
+let currentAOI = null;
+
+//
+
 function _geoFeatures(layerIdx) {
   const l = state.layers[layerIdx];
   return l ? (l.geojson.features || []) : [];
@@ -1020,4 +1025,3 @@ function reprojectGeoJSON(geojson, fromCRS, toCRS) {
   }
   for (const feat of geojson.features||[]) if(feat.geometry?.coordinates) feat.geometry.coordinates=rc(feat.geometry.coordinates);
 }
-

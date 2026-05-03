@@ -5,6 +5,8 @@
 <meta name="viewport" content="width=device-width, initial-scale=1.0">
 <title>Gaia v1.0 — GIS Data Explorer</title>
 
+
+
 <!-- CDN dependencies — integrity hashes protect against CDN compromise.
      To generate/refresh hashes run: bash tools/generate-sri.sh
      Then replace each integrity="sha384-PLACEHOLDER-..." below with the output. -->
@@ -1216,6 +1218,7 @@
       <div class="widget-tab" onclick="switchWidgetTab('viewshed')" id="wt-viewshed">👁 Viewshed</div>
       <div class="widget-tab" onclick="switchWidgetTab('elevation')" id="wt-elevation">📈 Elevation</div>
       <div class="widget-tab" onclick="switchWidgetTab('designqa')" id="wt-designqa">✅ Design QA</div>
+      <div class="widget-tab" onclick="switchWidgetTab('landclassify')" id="wt-landclassify">🌿 Land Classification</div>
     </div>
 
     <!-- MEASURE PANE -->
@@ -1492,7 +1495,7 @@
         <button class="btn btn-ghost btn-sm" style="flex:1;font-size:9px;" onclick="copyElevationProfilePNG()">📋 Copy PNG</button>
       </div>
     </div>
-
+    
     <!-- DESIGN QA PANE -->
     <div class="widget-pane" id="wp-designqa">
       <div style="margin-bottom:6px;">
@@ -1508,6 +1511,49 @@
       <button class="btn btn-primary btn-full" onclick="runDesignQA()" style="font-size:9px;margin-bottom:6px;">✅ Run Design QA</button>
       <div id="dqa-result" style="display:none;margin-top:6px;"></div>
     </div>
+
+
+
+
+ <!-- LAND CLASSIFICATION PANE -->
+<div class="widget-pane" id="wp-landclassify">
+
+  <div style="margin-bottom:6px;">
+    <label style="font-size:9px;color:var(--text3);display:block;margin-bottom:3px;
+      font-family:var(--mono);letter-spacing:0.5px;text-transform:uppercase;">
+      AOI Type
+    </label>
+    <select id="aoi-type" onchange="onAOITypeChange()">
+      <option value="draw">Draw Polygon</option>
+      <option value="upload">Upload (GeoJSON)</option>
+      <option value="existing">Use Existing Layer</option>
+    </select>
+  </div>
+
+  <div id="aoi-layer-row" style="display:none;margin-bottom:6px;">
+    <select id="aoi-layer-select">
+      <option value="">— select layer —</option>
+    </select>
+  </div>
+
+  <div id="aoi-upload-row" style="display:none;margin-bottom:6px;">
+    <input type="file" id="aoi-file" />
+  </div>
+
+  <div style="display:flex;gap:4px;margin-bottom:6px;">
+    <button class="btn btn-primary" style="flex:1;font-size:9px;" id="ep-draw-btn" onclick="activateAOIDraw()">✎ Draw AOI</button>
+    <button class="btn btn-ghost btn-sm" style="font-size:9px;" onclick="clearAOI()">✕</button>
+  </div>
+
+</div>
+<div id="aoi-result"></div>
+
+
+
+
+
+
+</div>
 
   </div>
 </div>
@@ -1655,6 +1701,26 @@
       </div>
     </div>
   </div>
+</div>
+
+<div id="draw-modal" style="display:none; position:fixed; inset:0; background:rgba(0,0,0,0.4); z-index:9999;">
+
+  <div style="width:260px; margin:120px auto; background:var(--bg); border:1px solid var(--border); border-radius:6px; padding:10px;">
+
+    <div style="font-size:10px; font-family:var(--mono); margin-bottom:8px; color:var(--text2);">
+      🟦 Draw Area of Interest
+    </div>
+
+    <button id="btn-start-draw" class="btn btn-primary btn-full" style="font-size:9px; margin-bottom:6px;">
+      ✏️ Draw Rectangle
+    </button>
+
+    <button id="btn-cancel-draw" class="btn btn-secondary btn-full" style="font-size:9px;">
+      Cancel
+    </button>
+
+  </div>
+
 </div>
 
 </body>

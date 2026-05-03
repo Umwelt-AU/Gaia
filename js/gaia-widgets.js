@@ -1005,7 +1005,7 @@ function clearElevationProfile() {
 }
 
 function switchWidgetTab(tab) {
-  ['measure','sbl','geoprocess','viewshed','elevation','designqa'].forEach(t => {
+  ['measure','sbl','geoprocess','viewshed','elevation','designqa','landclassify'].forEach(t => {
     const tabEl = document.getElementById('wt-' + t);
     const paneEl = document.getElementById('wp-' + t);
     if (tabEl) tabEl.classList.toggle('active', t === tab);
@@ -1013,7 +1013,16 @@ function switchWidgetTab(tab) {
   });
   if (tab === 'designqa') updateDQALayerList();
   if (tab === 'geoprocess') { updateGeoprocessLayerSelects(); setTimeout(_initGpTooltips, 50); }
+  if (tab === 'landclassify') {updateLandClassifyUI?.(); initAOIControls?.();
+  }
 }
+function updateLandClassifyUI() {
+  // optional UI hook (safe placeholder)
+}
+function initAOIControls() {
+  // optional UI hook (safe placeholder)
+}
+
 
 // Toggle a geoprocessing sub-section open/closed
 function gpToggle(id) {
@@ -1049,3 +1058,248 @@ function makePanelDraggable(panel, handle) {
   });
 }
 
+
+
+
+
+
+
+
+
+
+
+
+
+
+
+//////////////////////////////
+// AOI LAND CLASSIFICATION TOOL
+// Draw → Double-click → Classify → Raster
+//////////////////////////////
+
+// ==========================
+// START AOI DRAWING
+// ==========================
+function activateAOIDraw() {
+  clearWidgetDraw();
+  clearMeasure();
+
+  widgetState.mode = 'aoi';
+  widgetState.points = [];
+
+  const map = state.map;
+  map.getCanvas().style.cursor = 'crosshair';
+
+  const btn = document.getElementById('aoi-draw-btn');
+  if (btn) {
+    btn.style.borderColor = 'var(--accent)';
+    btn.style.color = 'var(--accent)';
+    btn.style.background = 'rgba(57,211,83,0.1)';
+  }
+
+  const endBtn = document.getElementById('aoi-end-btn');
+  if (endBtn) endBtn.style.display = 'none';
+
+  // prevent default zoom on double click
+  map.doubleClickZoom?.disable?.();
+
+  map.on('dblclick', handleAOIDoubleClick);
+
+  toast('Click to draw AOI. Double-click to finish.', 'info');
+}
+
+
+// ==========================
+// MAP DOUBLE CLICK HANDLER
+// ==========================
+function handleAOIDoubleClick(e) {
+  if (widgetState.mode !== 'aoi') return;
+
+  e.preventDefault?.();
+
+  endAOIDraw();
+}
+
+
+// ==========================
+// END AOI DRAWING
+// ==========================
+function endAOIDraw() {
+  const map = state.map;
+
+  map.off('dblclick', handleAOIDoubleClick);
+
+  if (!widgetState.points || widgetState.points.length < 3) {
+    toast('Draw at least 3 points for AOI polygon', 'error');
+    resetAOIButton();
+    return;
+  }
+
+  runAOIPolygon();
+
+  clearWidgetDraw();
+  resetAOIButton();
+}
+
+
+// ==========================
+// RESET UI STATE
+// ==========================
+function resetAOIButton() {
+  widgetState.mode = null;
+
+  const btn = document.getElementById('aoi-draw-btn');
+  if (btn) {
+    btn.style.borderColor = '';
+    btn.style.color = '';
+    btn.style.background = '';
+  }
+}
+
+
+// ==========================
+// BUILD AOI GEOJSON
+// ==========================
+function buildAOIGeoJSON() {
+  const coords = widgetState.points.map(p => [p.lng, p.lat]);
+
+  // close polygon
+  coords.push([widgetState.points[0].lng, widgetState.points[0].lat]);
+
+  return {
+    type: "Feature",
+    geometry: {
+      type: "Polygon",
+      coordinates: [coords]
+    },
+    properties: {}
+  };
+}
+
+
+// ==========================
+// RUN LAND CLASSIFICATION
+// ==========================
+async function runAOIPolygon() {
+  const resultBox = document.getElementById('aoi-result');
+
+  if (resultBox) {
+    resultBox.style.display = 'block';
+    resultBox.innerHTML = 'Loading landcover...';
+  }
+
+map.addSource('landcover', {
+  type: 'vector',
+  url: `https://api.maptiler.com/tiles/landcover/tiles.json?key=${GAIA_CONFIG.mapTilerKey}`
+});
+
+map.addLayer({
+  'source-layer': 'landcover',
+  'type': 'fill'
+});
+
+  renderLandClassificationRaster(tileUrl);
+
+  if (resultBox) {
+    resultBox.innerHTML = '✅ Landcover loaded (no backend mode)';
+  }
+}
+
+
+// ==========================
+// RASTER RENDERING (MAPBOX)
+// ==========================
+function renderLandClassificationRaster(tileUrl) {
+  const map = state.map;
+
+  if (map.getLayer('land-classification')) {
+    map.removeLayer('land-classification');
+  }
+
+  if (map.getSource('land-classification')) {
+    map.removeSource('land-classification');
+  }
+
+  map.addSource('land-classification', {
+    type: 'raster',
+    tiles: [tileUrl],
+    tileSize: 256
+  });
+
+  map.addLayer({
+    id: 'land-classification',
+    type: 'raster',
+    source: 'land-classification',
+    paint: {
+      'raster-opacity': 0.75
+    }
+  });
+}
+
+
+// ==========================
+// OPTIONAL CLEANUP
+// ==========================
+function clearLandClassification() {
+  const map = state.map;
+
+  if (map.getLayer('land-classification')) {
+    map.removeLayer('land-classification');
+  }
+
+  if (map.getSource('land-classification')) {
+    map.removeSource('land-classification');
+  }
+
+  const box = document.getElementById('aoi-result');
+  if (box) {
+    box.style.display = 'none';
+    box.innerHTML = '';
+  }
+}
+
+function addGaiaBaseLayers() {
+  const map = state.map;
+  const key = GAIA_CONFIG.mapTilerKey;
+
+  const layers = [
+    {
+      id: "gaia-landcover",
+      tileset: "globallandcover",
+      opacity: 0.65
+    },
+    {
+      id: "gaia-landform",
+      tileset: "landform",
+      opacity: 0.5
+    },
+    {
+      id: "gaia-cadastre",
+      tileset: "cadastre",
+      opacity: 0.6
+    }
+  ];
+
+  layers.forEach(l => {
+    const sourceId = l.id + "-source";
+
+    if (map.getSource(sourceId)) return;
+
+    map.addSource(sourceId, {
+      type: "raster",
+      tiles: [
+        `https://api.maptiler.com/tiles/${l.tileset}/{z}/{x}/{y}.png?key=${key}`
+      ],
+      tileSize: 256
+    });
+
+    map.addLayer({
+      id: l.id,
+      type: "raster",
+      source: sourceId,
+      paint: {
+        "raster-opacity": l.opacity
+      }
+    });
+  });
+}

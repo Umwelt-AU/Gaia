@@ -838,4 +838,3 @@ function runDesignQA() {
   resultEl.innerHTML = html;
   toast('Design QA complete — ' + rows.length + ' layer(s) analysed', 'success');
 }
-
