@@ -22,5 +22,3 @@ Australia National,Towns,https://spatial.infrastructure.gov.au/server/rest/servi
 Australia National,Suburbs & Localities,https://services1.arcgis.com/v8Kimc579yljmjSP/ArcGIS/rest/services/ABS2021_Census_G17A_Beta/FeatureServer/10
 Australia National,States and Territories,https://services1.arcgis.com/v8Kimc579yljmjSP/ArcGIS/rest/services/ABS2021_Census_G17A_Beta/FeatureServer/0
 Australia National,Local Government Areas,https://services1.arcgis.com/v8Kimc579yljmjSP/ArcGIS/rest/services/ABS2021_Census_G17A_Beta/FeatureServer/8
-Basemaps,NSW Aerial Imagery (XYZ),https://maps.six.nsw.gov.au/arcgis/rest/services/sixmaps/LPI_Imagery_Best/MapServer/tile/{z}/{y}/{x}
-Basemaps,QLD Aerial Imagery (XYZ),https://gisservices.information.qld.gov.au/arcgis/rest/services/Imagery/QldBase_AllUsers/ImageServer/tile/{z}/{y}/{x}
