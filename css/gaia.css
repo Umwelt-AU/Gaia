@@ -937,3 +937,52 @@ body.dark-mode #mes-close { background: var(--bg3); border-color: var(--border);
 }
 #legend-float-body { padding:8px 10px; }
 .vt-spacer td { padding:0; border:none; }
+
+
+
+
+.bug-icon {
+  display: inline-block;
+  position: relative;
+  width: 18px;
+  height: 18px;
+}
+
+/* animated bug */
+.bug-anim {
+  position: absolute;
+  left: 0;
+  top: 0;
+  font-size: 14px;
+  animation: bugWiggle 2.5s infinite ease-in-out;
+  transform-origin: center;
+  transition: opacity 0.15s ease;
+}
+
+/* static magnifier */
+.bug-hover {
+  position: absolute;
+  left: 0;
+  top: 0;
+  font-size: 14px;
+  opacity: 0;
+  transition: opacity 0.15s ease;
+}
+
+/* hover swap */
+.bug-btn:hover .bug-anim {
+  opacity: 0;
+}
+
+.bug-btn:hover .bug-hover {
+  opacity: 1;
+}
+
+/* your existing animation */
+@keyframes bugWiggle {
+  0%   { transform: rotate(0deg) translateY(0px); }
+  25%  { transform: rotate(-6deg) translateY(-1px); }
+  50%  { transform: rotate(6deg) translateY(1px); }
+  75%  { transform: rotate(-4deg) translateY(0px); }
+  100% { transform: rotate(0deg) translateY(0px); }
+}

@@ -1477,140 +1477,303 @@ function reprojectGeoJSON(geojson, fromCRS, toCRS) {
   for (const feat of geojson.features||[]) if(feat.geometry?.coordinates) feat.geometry.coordinates=rc(feat.geometry.coordinates);
 }
 
+
+
+//
 // ── ADD LAYER ──
 function addLayer(geojson, name, sourceCRS, format) {
   const color = LAYER_COLORS[state.layers.length % LAYER_COLORS.length];
-  const idx = state.layers.length;
+
   const geomTypes = new Set();
-  (geojson.features||[]).forEach(f => { if(f.geometry) geomTypes.add(f.geometry.type); });
-  const geomType = [...geomTypes].join('/')||'Unknown';
-  const isLine = [...geomTypes].some(t=>t.includes('Line'));
-  const fields = {};
-  (geojson.features||[]).forEach(f => {
-    if(f.properties) Object.keys(f.properties).forEach(k=>{ if(!fields[k]) fields[k]=inferType(f.properties[k]); });
+  (geojson.features || []).forEach(f => {
+    if (f.geometry) geomTypes.add(f.geometry.type);
   });
-  const normalStyle  = { color, fillColor:color, fillOpacity:0.25, weight:isLine?1:2, opacity:0.9 };
-  const selectedStyle = { color:'#00ffff', fillColor:color, fillOpacity: 0.25, weight:isLine?2.5:3, opacity:1 };
-  const hoverStyle   = { fillOpacity:0.4, weight:isLine?1.5:2.5 };
 
-  const leafletLayer = L.geoJSON(geojson, {
+  const geomType = [...geomTypes].join('/') || 'Unknown';
+  const isLine = [...geomTypes].some(t => t.includes('Line'));
+
+  const fields = {};
+  (geojson.features || []).forEach(f => {
+    if (f.properties) {
+      Object.keys(f.properties).forEach(k => {
+        if (!fields[k]) fields[k] = inferType(f.properties[k]);
+      });
+    }
+  });
+
+  const normalStyle = {
+    color,
+    fillColor: color,
+    fillOpacity: 0.25,
+    weight: isLine ? 1 : 2,
+    opacity: 0.9
+  };
+
+const paneName = `layerPane_${state.layers.length}`;
+state.map.createPane(paneName);
+state.map.getPane(paneName).style.zIndex = 400 + state.layers.length;
+
+// ✅ Add stable feature IDs BEFORE Leaflet processes the data
+geojson.features.forEach((f, i) => {
+  f.__fid = i;
+});
+
+const leafletLayer = L.geoJSON(geojson, {
+  pane: paneName,
     style: () => ({ ...normalStyle }),
-    pointToLayer: (feat,latlng) => { const ic = _makePointIcon(color,'#000000',false,'circle',9,0.5); return L.marker(latlng,{icon:ic}); },
-    onEachFeature: (feat, sublayer) => {
-      const fi = (geojson.features||[]).indexOf(feat);
-      const isPoint = feat.geometry?.type.includes('Point');
 
-      sublayer.on('click', function(e) {
+    pointToLayer: (feat, latlng) => {
+      const ic = _makePointIcon(color, '#000000', false, 'circle', 9, 0.5);
+      return L.marker(latlng, { icon: ic });
+    },
+
+    onEachFeature: (feat, sublayer) => {
+      const isPoint = feat.geometry?.type?.includes('Point');
+
+      sublayer.on('click', function (e) {
         const orig = e.originalEvent;
-        const layerIdx = idx;
+        const layerIdx = layerRef.idx;
+        const fi = layerRef.geojson.features.indexOf(feat);
 
         if (orig.ctrlKey || orig.metaKey) {
-          // Ctrl/Cmd — toggle this feature
           if (state.selectedFeatureIndices.has(fi)) {
             state.selectedFeatureIndices.delete(fi);
           } else {
             state.selectedFeatureIndices.add(fi);
             state.selectedFeatureIndex = fi;
           }
-          state.activeLayerIndex = layerIdx;
-          updateSelectionCount(); refreshMapSelection(layerIdx); renderTable(); scrollTableToFeature(fi);
-        } else if (orig.shiftKey && state.selectedFeatureIndex >= 0 && state.activeLayerIndex === layerIdx) {
-          // Shift — range select
+
+        } else if (
+          orig.shiftKey &&
+          state.selectedFeatureIndex >= 0 &&
+          state.activeLayerIndex === layerIdx
+        ) {
           const lo = Math.min(state.selectedFeatureIndex, fi);
           const hi = Math.max(state.selectedFeatureIndex, fi);
-          for (let i = lo; i <= hi; i++) state.selectedFeatureIndices.add(i);
-          state.activeLayerIndex = layerIdx;
-          updateSelectionCount(); refreshMapSelection(layerIdx); renderTable(); scrollTableToFeature(fi);
+          for (let i = lo; i <= hi; i++) {
+            state.selectedFeatureIndices.add(i);
+          }
+
         } else {
-          // Plain click — single select, inspect, fly to, popup
-          state.activeLayerIndex = layerIdx;
           state.selectedFeatureIndex = fi;
           state.selectedFeatureIndices = new Set([fi]);
-          const feat2 = (geojson.features||[])[fi];
+
+          const feat2 = layerRef.geojson.features[fi];
           if (feat2) {
             showFeatureInspector(feat2);
             showFeaturePopup(state.map, e.latlng, feat2, color);
           }
-          updateLayerList(); updateSelectionCount(); refreshMapSelection(layerIdx); renderTable(); scrollTableToFeature(fi);
-          try { const b = sublayer.getBounds(); if(b.isValid()) state.map.flyToBounds(b,{duration:0.4,padding:CONSTANTS.MAP_FIT_PADDING_WIDE}); } catch(e2) {}
+
+          try {
+            const b = sublayer.getBounds?.();
+            if (b && b.isValid()) {
+              state.map.flyToBounds(b, {
+                duration: 0.4,
+                padding: CONSTANTS.MAP_FIT_PADDING_WIDE
+              });
+            }
+          } catch {}
         }
-        // Flag so map.on('click') knows a feature was clicked (don't clear selection)
+
+        state.activeLayerIndex = layerIdx;
+
+        updateSelectionCount();
+        refreshMapSelection(layerIdx);
+        renderTable();
+        scrollTableToFeature(fi);
+        updateLayerList();
+
         e.originalEvent._featureClicked = true;
         L.DomEvent.stopPropagation(e);
       });
 
-      sublayer.on('mouseover', function() {
-        if (!isPoint && !state.selectedFeatureIndices.has(fi)) {
-          const layer = state.layers[idx];
-          const ow = layer && layer.outlineWidth != null ? layer.outlineWidth : (isLine ? 1 : 2);
-          this.setStyle({ fillOpacity:0.4, weight: ow + 0.8 });
+      sublayer.on('mouseover', function () {
+        const layerIdx = layerRef.idx;
+
+        if (!isPoint && !state.selectedFeatureIndices.has(layerRef.geojson.features.indexOf(feat))) {
+          const layer = state.layers[layerIdx];
+          const ow = layer?.outlineWidth ?? (isLine ? 1 : 2);
+
+          this.setStyle({
+            fillOpacity: 0.4,
+            weight: ow + 0.8
+          });
         }
       });
-      sublayer.on('mouseout', function() {
-        if (!isPoint) {
-          // Always read current symbology from layer state so hover resets to current look
-          refreshMapSelection(idx);
-        }
+
+      sublayer.on('mouseout', function () {
+        refreshMapSelection(layerRef.idx);
       });
     }
   });
+
+  // --- Create layer object FIRST (fixes index bug) ---
+  const layerRef = {
+    geojson,
+    name,
+    sourceCRS,
+    format,
+    color,
+    fields,
+    geomType,
+    leafletLayer,
+    visible: true,
+    layerOpacity: 1,
+    idx: null // assigned below
+  };
+
+  state.layers.push(layerRef);
+  layerRef.idx = state.layers.length - 1;
+
+  // --- Add to map AFTER state is correct ---
   leafletLayer.addTo(state.map);
-  // New layers go to top of list (index 0) — refresh z-order
-  setTimeout(refreshLayerZOrder, 50);
-  state.layers.push({ geojson, name, sourceCRS, format, color, fields, geomType, leafletLayer, visible:true, layerOpacity:1 });
-  updateLayerList(); updateExportLayerList(); updateSBLLayerList(); updateDQALayerList(); setActiveLayer(idx);
-  _updateEmptyState();
-  try { state.map.fitBounds(leafletLayer.getBounds(), {padding:CONSTANTS.MAP_FIT_PADDING}); } catch(e){}
+
+  // --- Wait for layer to actually render ---
+  leafletLayer.once('add', () => {
+    // Fix z-order deterministically
+    refreshLayerZOrder();
+
+    // Safe fitBounds
+    setTimeout(() => {
+      try {
+        const bounds = leafletLayer.getBounds();
+        if (bounds && bounds.isValid()) {
+          state.map.fitBounds(bounds, {
+            padding: CONSTANTS.MAP_FIT_PADDING
+          });
+        }
+      } catch {}
+    }, 0);
+
+    // Sync UI AFTER render
+    setTimeout(() => {
+      updateLayerList();
+      updateExportLayerList();
+      updateSBLLayerList();
+      updateDQALayerList();
+      setActiveLayer(layerRef.idx);
+      _updateEmptyState();
+    }, 0);
+  });
 }
 
+// Re-apply normal/selected styles to all sublayers of a vector layer
 // Re-apply normal/selected styles to all sublayers of a vector layer
 function refreshMapSelection(layerIdx) {
   const layer = state.layers[layerIdx];
   if (!layer || layer.isTile) return;
+
   const color = layer.outlineColor || layer.color;
   const fillColor = layer.fillColor || layer.color;
   const noFill = layer.noFill || false;
-  const geomTypes = new Set((layer.geojson.features||[]).map(f=>f.geometry?.type).filter(Boolean));
-  const isLine = [...geomTypes].some(t=>t.includes('Line'));
-  const isPoint = [...geomTypes].some(t=>t.includes('Point'));
 
-  // Build a per-feature colour lookup when layer is classified
+  const geomTypes = new Set(
+    (layer.geojson.features || [])
+      .map(f => f.geometry?.type)
+      .filter(Boolean)
+  );
+
+  const isLine = [...geomTypes].some(t => t.includes('Line'));
+
+  // Build classification map if needed
   let classifyColorMap = null;
-  if (layer.classified && layer.classifyClasses && layer.classifyClasses.length && layer.classifyField) {
+
+  if (
+    layer.classified &&
+    layer.classifyClasses?.length &&
+    layer.classifyField
+  ) {
     classifyColorMap = new Map();
     const field = layer.classifyField;
-    (layer.geojson.features || []).forEach(function(f, idx) {
+
+    (layer.geojson.features || []).forEach((f, i) => {
       const val = f.properties ? f.properties[field] : undefined;
-      // Use .test() if available (supports both unique and numeric-range classes)
+
       const cls = layer.classifyClasses.find(c =>
-        typeof c.test === 'function' ? c.test(val) : String(c.label) === String(val)
+        typeof c.test === 'function'
+          ? c.test(val)
+          : String(c.label) === String(val)
       );
-      if (cls) classifyColorMap.set(idx, cls.color);
+
+      if (cls) classifyColorMap.set(i, cls.color);
     });
   }
 
-  let fi = 0;
-  layer.leafletLayer.eachLayer(function(sublayer) {
-    const isSelected = state.selectedFeatureIndices.has(fi);
-    const featureIsPoint = layer.geojson.features[fi]?.geometry?.type.includes('Point');
-    const featureFill = (classifyColorMap && classifyColorMap.has(fi)) ? classifyColorMap.get(fi) : fillColor;
-    const featureStroke = (classifyColorMap && classifyColorMap.has(fi)) ? classifyColorMap.get(fi) : color;
+  // 🔥 IMPORTANT: DO NOT use fi counter — use feature reference instead
+  layer.leafletLayer.eachLayer(function (sublayer) {
+    const feature = sublayer.feature;
+    const fi = feature?.__fid;
 
-    if (!featureIsPoint) {
-      const ow = layer.outlineWidth != null ? layer.outlineWidth : (isLine ? 1 : 2);
-      const normal   = { color: featureStroke, fillColor: featureFill, fillOpacity: noFill ? 0 : 0.25, weight: ow, opacity: 0.9 };
-      const selected = { color: '#00ffff',     fillColor: featureFill, fillOpacity: noFill ? 0 : 0.25, weight: Math.max(ow, 3), opacity: 1 };
+    if (fi == null) return;
+
+    const isSelected = state.selectedFeatureIndices.has(fi);
+
+    const featureType = feature?.geometry?.type;
+    const isPoint = featureType?.includes('Point');
+
+    const featureFill =
+      (classifyColorMap && classifyColorMap.has(fi))
+        ? classifyColorMap.get(fi)
+        : fillColor;
+
+    const featureStroke =
+      (classifyColorMap && classifyColorMap.has(fi))
+        ? classifyColorMap.get(fi)
+        : color;
+
+    if (!isPoint) {
+      const ow =
+        layer.outlineWidth != null
+          ? layer.outlineWidth
+          : (isLine ? 1 : 2);
+
+      const normal = {
+        color: featureStroke,
+        fillColor: featureFill,
+        fillOpacity: noFill ? 0 : 0.25,
+        weight: ow,
+        opacity: 0.9
+      };
+
+      const selected = {
+        color: '#00ffff',
+        fillColor: featureFill,
+        fillOpacity: noFill ? 0 : 0.25,
+        weight: Math.max(ow, 3),
+        opacity: 1
+      };
+
       sublayer.setStyle(isSelected ? selected : normal);
     } else {
       if (sublayer.setIcon) {
-        const baseSize = layer.pointSize != null ? layer.pointSize : 9;
-        const s = isSelected ? Math.round(baseSize * 1.4) : baseSize;
-        const ow = layer.outlineWidth != null ? layer.outlineWidth : 0.5;
-        const outlineCol = isSelected ? '#00ffff' : (layer.outlineColor || '#000000');
-        sublayer.setIcon(_makePointIcon(featureFill, outlineCol, noFill, layer.pointShape || 'circle', s, ow));
+        const baseSize =
+          layer.pointSize != null ? layer.pointSize : 9;
+
+        const s = isSelected
+          ? Math.round(baseSize * 1.4)
+          : baseSize;
+
+        const ow =
+          layer.outlineWidth != null
+            ? layer.outlineWidth
+            : 0.5;
+
+        const outlineCol = isSelected
+          ? '#00ffff'
+          : (layer.outlineColor || '#000000');
+
+        sublayer.setIcon(
+          _makePointIcon(
+            featureFill,
+            outlineCol,
+            noFill,
+            layer.pointShape || 'circle',
+            s,
+            ow
+          )
+        );
       }
     }
-    fi++;
   });
 }
 
