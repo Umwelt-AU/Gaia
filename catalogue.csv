@@ -22,3 +22,4 @@ Australia National,Towns,https://spatial.infrastructure.gov.au/server/rest/servi
 Australia National,Suburbs & Localities,https://services1.arcgis.com/v8Kimc579yljmjSP/ArcGIS/rest/services/ABS2021_Census_G17A_Beta/FeatureServer/10
 Australia National,States and Territories,https://services1.arcgis.com/v8Kimc579yljmjSP/ArcGIS/rest/services/ABS2021_Census_G17A_Beta/FeatureServer/0
 Australia National,Local Government Areas,https://services1.arcgis.com/v8Kimc579yljmjSP/ArcGIS/rest/services/ABS2021_Census_G17A_Beta/FeatureServer/8
+Australia National,ABARES Land Use (50m),https://www.asris.csiro.au/arcgis/rest/services/abares/clum_50m_current/MapServer/1
