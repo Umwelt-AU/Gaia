@@ -465,7 +465,11 @@ function updateLayerList() {
             onclick="createLayerGroup()">＋ New Group</button></div>`;
 
   if (!state.layers.length && !(state.layerGroups || []).length) {
-    el.innerHTML = `<div class="empty-state">No layers loaded.<br>Drop a file above to begin.</div>${newGroupBtn}`;
+    el.innerHTML = `<div class="empty-state">
+      <div style="font-size:22px;margin-bottom:8px;opacity:0.4;">🗺</div>
+      <div style="font-weight:600;color:var(--text2);margin-bottom:4px;">No layers loaded</div>
+      <div>Drop a file onto the map, or use<br><strong>+ Add Layer from URL</strong> to connect<br>to a service or catalogue.</div>
+    </div>${newGroupBtn}`;
     return;
   }
 
@@ -537,9 +541,63 @@ function updateLayerList() {
     html += `</div>`;
   }
 
-  el.innerHTML = html;
+  el.innerHTML = html +
+    `<div id="layer-filter-empty" style="display:none;padding:16px;text-align:center;font-family:var(--mono);font-size:11px;color:var(--text3);">No layers match "<span id="layer-filter-term"></span>"</div>`;
   // Keep geoprocessing layer selects in sync
   if (typeof updateGeoprocessLayerSelects === 'function') updateGeoprocessLayerSelects();
+
+  // Show/hide search row and re-apply any active filter
+  const searchRow = document.getElementById('layer-search-row');
+  if (searchRow) searchRow.style.display = state.layers.length > 0 ? '' : 'none';
+  _applyLayerFilter();
+}
+
+let _layerFilterTerm = '';
+
+function filterLayerList(term) {
+  _layerFilterTerm = (term || '').toLowerCase().trim();
+  const clearBtn = document.getElementById('layer-search-clear');
+  if (clearBtn) clearBtn.style.display = _layerFilterTerm ? '' : 'none';
+  _applyLayerFilter();
+}
+
+function clearLayerFilter() {
+  _layerFilterTerm = '';
+  const input = document.getElementById('layer-search-input');
+  if (input) input.value = '';
+  const clearBtn = document.getElementById('layer-search-clear');
+  if (clearBtn) clearBtn.style.display = 'none';
+  _applyLayerFilter();
+}
+
+function _applyLayerFilter() {
+  const term = _layerFilterTerm;
+
+  // Show/hide individual layer items by name match
+  document.querySelectorAll('#layer-list .layer-item').forEach(el => {
+    const nameEl = el.querySelector('.layer-name');
+    const name = nameEl ? nameEl.textContent.toLowerCase() : '';
+    el.style.display = (!term || name.includes(term)) ? '' : 'none';
+  });
+
+  // Hide entire group blocks if all their layer items are filtered out
+  document.querySelectorAll('#layer-list .layer-group-block').forEach(grp => {
+    if (!term) { grp.style.display = ''; return; }
+    const visibleItems = Array.from(grp.querySelectorAll('.layer-item'))
+      .filter(el => el.style.display !== 'none');
+    grp.style.display = visibleItems.length > 0 ? '' : 'none';
+  });
+
+  // Show a "no match" message if nothing is visible
+  const noMatch = document.getElementById('layer-filter-empty');
+  const anyVisible = !term ||
+    Array.from(document.querySelectorAll('#layer-list .layer-item'))
+      .some(el => el.style.display !== 'none');
+  if (noMatch) {
+    noMatch.style.display = (!anyVisible && term) ? '' : 'none';
+    const termEl = document.getElementById('layer-filter-term');
+    if (termEl) termEl.textContent = term;
+  }
 }
 
 function _renderLayerItem(layer, i) {
@@ -554,7 +612,9 @@ function _renderLayerItem(layer, i) {
          ).join('')}
        </select>`
     : '';
-  const featCount = layer.isTile ? 'Tile' : ((layer.geojson||{}).features||[]).length + ' feat';
+  const featCount = layer.isTile
+    ? `<span style="font-family:var(--mono);font-size:9px;padding:1px 5px;background:var(--bg3);border:1px solid var(--border);border-radius:3px;color:var(--text3);">${Math.round((layer.layerOpacity??1)*100)}% opacity</span>`
+    : ((layer.geojson||{}).features||[]).length + ' feat';
   const _eyeOpen = `<svg xmlns="http://www.w3.org/2000/svg" width="13" height="13" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2" stroke-linecap="round" stroke-linejoin="round"><path d="M1 12s4-8 11-8 11 8 11 8-4 8-11 8-11-8-11-8z"/><circle cx="12" cy="12" r="3"/></svg>`;
   const _eyeOff  = `<svg xmlns="http://www.w3.org/2000/svg" width="13" height="13" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2" stroke-linecap="round" stroke-linejoin="round"><path d="M17.94 17.94A10.07 10.07 0 0 1 12 20c-7 0-11-8-11-8a18.45 18.45 0 0 1 5.06-5.94M9.9 4.24A9.12 9.12 0 0 1 12 4c7 0 11 8 11 8a18.5 18.5 0 0 1-2.16 3.19m-6.72-1.07a3 3 0 1 1-4.24-4.24"/><line x1="1" y1="1" x2="23" y2="23"/></svg>`;
   return `
@@ -581,7 +641,7 @@ function _renderLayerItem(layer, i) {
       </div>
       <!-- Row 2: meta · group selector · options -->
       <div class="layer-item-bottom">
-        <span class="layer-meta">${escHtml(layer.format)} · ${featCount}</span>
+        <span class="layer-meta">${escHtml(layer.format)} · ${layer.isTile ? featCount : escHtml(featCount)}</span>
         ${groupOpts}
         <button class="btn btn-ghost btn-sm" style="padding:1px 5px;font-size:12px;letter-spacing:1px;flex-shrink:0;"
                 onclick="event.stopPropagation();openLayerCtxMenu(event,${i})" title="Options">⋯</button>

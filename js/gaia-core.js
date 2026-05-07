@@ -6,6 +6,47 @@ const _UMWELT_LOGO_B64 = "iVBORw0KGgoAAAANSUhEUgAABNgAAAHcCAYAAAAEHxfNAAEAAElEQV
 
 const LAYER_COLORS = ['#39d353','#5ab4f0','#f0883e','#bc8cff','#e3b341','#f85149','#79c0ff','#56d364','#d2a8ff','#ffa657'];
 
+// ── Map loading bar ────────────────────────────────────────────────────────
+// mapLoadBar.start()  — indeterminate sweep (unknown duration)
+// mapLoadBar.set(pct) — deterministic 0–100 progress
+// mapLoadBar.done()   — fill to 100% then fade out
+const mapLoadBar = (() => {
+  let _timer = null;
+  const bar  = () => document.getElementById('map-load-bar');
+  const inner = () => document.getElementById('map-load-bar-inner');
+  return {
+    start() {
+      const b = bar(); const i = inner(); if (!b || !i) return;
+      clearTimeout(_timer);
+      i.style.transition = 'none'; i.style.width = '0%'; i.style.opacity = '1';
+      b.classList.add('active', 'indeterminate');
+    },
+    set(pct) {
+      const b = bar(); const i = inner(); if (!b || !i) return;
+      b.classList.remove('indeterminate');
+      b.classList.add('active');
+      i.style.transition = 'width 0.4s ease';
+      i.style.width = Math.min(100, pct) + '%';
+    },
+    done() {
+      const b = bar(); const i = inner(); if (!b || !i) return;
+      b.classList.remove('indeterminate');
+      b.classList.add('active');
+      i.style.transition = 'width 0.25s ease';
+      i.style.width = '100%';
+      clearTimeout(_timer);
+      _timer = setTimeout(() => {
+        i.style.transition = 'opacity 0.3s ease';
+        i.style.opacity = '0';
+        setTimeout(() => {
+          b.classList.remove('active');
+          i.style.width = '0%'; i.style.opacity = '1';
+        }, 320);
+      }, 260);
+    },
+  };
+})();
+
 const CONSTANTS = {
   TOAST_DURATION_MS:   4500,
   FETCH_TIMEOUT_MS:    30000,

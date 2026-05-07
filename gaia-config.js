@@ -10,6 +10,7 @@
 // ═══════════════════════════════════════════════════════════════════════════
 
 const GAIA_CONFIG = {
+  version:     '1.0',
   mapTilerKey: 'rw1EkxS93F7pBPgaCfEI',
   agol: {
     clientId:    '2TXWEhK9RGbU6KP4',

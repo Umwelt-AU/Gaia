@@ -1234,15 +1234,20 @@ function toggleDEALayer() {
   const year  = document.getElementById('dea-year')?.value  || '2024';
   const style = document.getElementById('dea-style')?.value || 'level4';
 
-  // Remove existing layer/source first (handles both toggle-off and style/year reload)
-  try { if (map.getLayer('dea-landcover'))    map.removeLayer('dea-landcover'); }    catch(_) {}
+  // Remove existing MapLibre layer/source first
+  try { if (map.getLayer('dea-landcover'))      map.removeLayer('dea-landcover'); }      catch(_) {}
   try { if (map.getSource('dea-landcover-src')) map.removeSource('dea-landcover-src'); } catch(_) {}
 
-  // If layer was visible, toggling off — stop here
+  // Remove any existing state.layers entry for the DEA layer
+  const existingIdx = state.layers.findIndex(l => l.isDEALayer);
+  if (existingIdx >= 0) state.layers.splice(existingIdx, 1);
+
+  // If layer was visible, toggling off — clean up and return
   if (btn?.dataset.active === '1') {
     btn.dataset.active = '0';
     btn.textContent = '🗺 Show DEA Layer';
     btn.style.borderColor = ''; btn.style.color = '';
+    if (typeof updateLegend === 'function') updateLegend();
     return;
   }
 
@@ -1255,11 +1260,21 @@ function toggleDEALayer() {
   map.addLayer({ id: 'dea-landcover', type: 'raster', source: 'dea-landcover-src',
     paint: { 'raster-opacity': 0.8 } });
 
+  // Register in state.layers so the legend can pick it up
+  state.layers.unshift({
+    name: `DEA Landcover ${year}`,
+    isDEALayer: true, isTile: true,
+    visible: true, deaYear: year, deaStyle: style,
+    color: '#2a8878', geomType: 'Raster',
+    fields: {}, geojson: { features: [] },
+  });
+
   if (btn) {
     btn.dataset.active = '1';
     btn.textContent = '🗺 Hide DEA Layer';
     btn.style.borderColor = 'var(--accent)'; btn.style.color = 'var(--accent)';
   }
+  if (typeof updateLegend === 'function') updateLegend();
 }
 
 // Reload the WMS layer when year or style changes while it is visible
@@ -1269,6 +1284,7 @@ function _reloadDEALayerIfActive() {
   // Temporarily mark as inactive so toggleDEALayer re-adds rather than just removes
   btn.dataset.active = '0';
   toggleDEALayer();
+  // toggleDEALayer calls updateLegend internally — no extra call needed here
 }
 
 function activateAOIDraw() {

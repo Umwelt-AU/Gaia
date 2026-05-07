@@ -207,7 +207,7 @@ async function loadCSV(file) {
     setProgress(90, 'Rendering…');
     addLayer(geojson, file.name.replace(/\.csv$/i,'').replace(/\.txt$/i,''), 'EPSG:4326', 'CSV');
     hideProgress();
-    toast(`Loaded: ${file.name} (${geojson.features.length} point features)`, 'success');
+    toast(`${file.name}: ${geojson.features.length} feature${geojson.features.length!==1?'s':''} loaded`, 'success');
   } catch(err) {
     hideProgress();
     toast('CSV error: ' + err.message, 'error');
@@ -810,6 +810,25 @@ function filterCatalogue() {
 async function addLayerFromCatalogue(url, name) {
   if (!url) return;
 
+  // Show loading state on the clicked catalogue item
+  const itemEl = document.querySelector(`.cat-item[data-url="${CSS.escape(url)}"]`);
+  if (itemEl) {
+    itemEl._origHtml = itemEl.innerHTML;
+    itemEl.style.opacity = '0.6';
+    itemEl.style.pointerEvents = 'none';
+    const spinner = document.createElement('span');
+    spinner.textContent = '⏳';
+    spinner.style.cssText = 'margin-left:auto;font-size:11px;flex-shrink:0;';
+    itemEl.appendChild(spinner);
+  }
+  const _restoreItem = () => {
+    if (itemEl && itemEl._origHtml !== undefined) {
+      itemEl.innerHTML = itemEl._origHtml;
+      itemEl.style.opacity = '';
+      itemEl.style.pointerEvents = '';
+    }
+  };
+
   // Warn if zoomed too far out (risk of incomplete feature load)
   if (state.map) {
     const zoom = state.map.getZoom();
@@ -836,21 +855,25 @@ async function addLayerFromCatalogue(url, name) {
   // Determine type: ArcGIS FeatureServer/MapServer, WMS, XYZ tile, or GeoJSON URL
   const isArcGIS = /\/(FeatureServer|MapServer|ImageServer)\/?\d*$/i.test(url);
   const isXYZ    = url.includes('{z}') || url.includes('{x}') || url.includes('{y}');
-  const isWMS    = url.toLowerCase().includes('service=wms') || url.toLowerCase().includes('request=getcapabilities');
+  const isWMS    = /service=wms|request=getcapabilities|[?&]layers=/i.test(url);
 
-  if (isArcGIS) {
-    await _catalogueLoadArcGIS(url, name);
-  } else if (isXYZ) {
-    _catalogueLoadXYZ(url, name);
-  } else if (isWMS) {
-    toast('WMS from catalogue: use the WMS tab to configure layers', 'info');
-  } else {
-    // Try as GeoJSON URL
-    await _catalogueLoadGeoJSONURL(url, name);
+  try {
+    if (isArcGIS) {
+      await _catalogueLoadArcGIS(url, name);
+    } else if (isXYZ) {
+      _catalogueLoadXYZ(url, name);
+    } else if (isWMS) {
+      _catalogueLoadWMS(url, name);
+    } else {
+      await _catalogueLoadGeoJSONURL(url, name);
+    }
+  } finally {
+    _restoreItem();
   }
 }
 
 async function _catalogueLoadArcGIS(url, name) {
+  mapLoadBar.start();
   const cleanUrl = url.trim().replace(/\/+$/, '');
 
   // Build extent query from current map bounds
@@ -880,10 +903,17 @@ async function _catalogueLoadArcGIS(url, name) {
     if (!geojson.features) throw new Error('No features returned');
 
     const n = geojson.features.length;
+    if (n === 0) {
+      mapLoadBar.done();
+      toast(`${name}: no features found in this extent — try zooming in closer`, 'info');
+      return;
+    }
     const truncated = n >= CONSTANTS.MAX_CATALOGUE_FEATURES;
     addLayer(geojson, name, 'EPSG:4326', 'ArcGIS REST');
+    mapLoadBar.done();
     toast(`${name}: ${n} feature${n!==1?'s':''} loaded${truncated?' (limit reached — zoom in)':''}`, 'success');
   } catch(err) {
+    mapLoadBar.done();
     toast(`Catalogue: ${name} — ${err.message}`, 'error');
   }
 }
@@ -905,15 +935,62 @@ function _catalogueLoadXYZ(url, name) {
   }
 }
 
+function _catalogueLoadWMS(url, name) {
+  try {
+    // Parse base URL and any existing query params from the catalogue entry
+    const [baseUrl, queryStr] = url.split('?');
+    const params = new URLSearchParams(queryStr || '');
+
+    // Extract LAYERS and STYLES if already in the URL (case-insensitive)
+    let layers = '', styles = '', version = '1.3.0', format = 'image/png';
+    for (const [k, v] of params.entries()) {
+      const kl = k.toLowerCase();
+      if (kl === 'layers') layers = v;
+      else if (kl === 'styles') styles = v;
+      else if (kl === 'version') version = v;
+      else if (kl === 'format') format = v;
+    }
+    if (!layers) { toast(`WMS catalogue: no LAYERS param found in URL for "${name}"`, 'error'); return; }
+
+    const tileUrl = baseUrl +
+      `?SERVICE=WMS&REQUEST=GetMap&VERSION=${encodeURIComponent(version)}` +
+      `&LAYERS=${encodeURIComponent(layers)}` +
+      `&STYLES=${encodeURIComponent(styles)}` +
+      `&FORMAT=${encodeURIComponent(format)}&TRANSPARENT=TRUE` +
+      `&CRS=EPSG%3A3857&WIDTH=256&HEIGHT=256&BBOX={bbox-epsg-3857}`;
+
+    const idx = state.layers.length;
+    const mapId = _layerMapId(idx);
+    const layer = { name, format: 'WMS', color: '#5ab4f0', mapId, visible: true, isTile: true,
+      tileUrl, fields: {}, geojson: { features: [] }, geomType: 'Tile', sourceCRS: 'EPSG:4326', layerOpacity: 0.85 };
+    state.layers.push(layer);
+    if (state.map && state.map.isStyleLoaded()) _renderMapLayer(layer, idx);
+    else if (state.map) state.map.once('load', () => _renderMapLayer(layer, idx));
+    updateLayerList(); updateExportLayerList();
+    toast(`WMS layer added: ${name}`, 'success');
+  } catch(err) {
+    toast(`Catalogue WMS error: ${err.message}`, 'error');
+  }
+}
+
 async function _catalogueLoadGeoJSONURL(url, name) {
+  mapLoadBar.start();
   try {
     const resp = await fetch(url, { signal: AbortSignal.timeout(CONSTANTS.FETCH_TIMEOUT_MS) });
     if (!resp.ok) throw new Error('HTTP ' + resp.status);
     const geojson = await resp.json();
     if (!geojson.features && geojson.type !== 'FeatureCollection') throw new Error('Not a valid GeoJSON response');
+    const n = (geojson.features || []).length;
+    if (n === 0) {
+      mapLoadBar.done();
+      toast(`${name}: no features found — the service returned an empty collection`, 'info');
+      return;
+    }
     addLayer(geojson, name, 'EPSG:4326', 'GeoJSON URL');
-    toast(`${name}: loaded from GeoJSON URL`, 'success');
+    mapLoadBar.done();
+    toast(`${name}: ${n} feature${n!==1?'s':''} loaded`, 'success');
   } catch(err) {
+    mapLoadBar.done();
     toast(`Catalogue GeoJSON error: ${err.message}`, 'error');
   }
 }

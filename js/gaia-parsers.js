@@ -106,12 +106,17 @@ function showProgress(title, sub, pct=0) {
   document.getElementById('progress-title').textContent = title;
   document.getElementById('progress-sub').textContent = sub;
   document.getElementById('progress-bar').style.width = pct + '%';
+  if (pct > 0) mapLoadBar.set(pct); else mapLoadBar.start();
 }
 function setProgress(pct, sub) {
   document.getElementById('progress-bar').style.width = pct + '%';
   if (sub) document.getElementById('progress-sub').textContent = sub;
+  mapLoadBar.set(pct);
 }
-function hideProgress() { document.getElementById('progress-overlay').classList.remove('show'); }
+function hideProgress() {
+  document.getElementById('progress-overlay').classList.remove('show');
+  mapLoadBar.done();
+}
 
 // ── LOADERS ──
 async function loadShapefile(baseName, exts) {
@@ -130,7 +135,7 @@ async function loadShapefile(baseName, exts) {
     setProgress(95, 'Rendering…');
     addLayer(geojson, exts.shp.name.replace('.shp',''), sourceCRS, 'Shapefile');
     hideProgress();
-    toast(`Loaded: ${exts.shp.name} (${geojson.features.length} features)`, 'success');
+    toast(`${exts.shp.name}: ${geojson.features.length} feature${geojson.features.length!==1?'s':''} loaded`, 'success');
   } catch(err) { hideProgress(); toast(`Shapefile error: ${err.message}`, 'error'); console.error(err); }
 }
 
@@ -288,7 +293,7 @@ async function loadKML(file) {
 
     toLoad.forEach(l => addLayer(l.geojson, l.name, 'EPSG:4326', 'KML'));
     const total = toLoad.reduce((s, l) => s + l.geojson.features.length, 0);
-    toast(`Loaded ${toLoad.length} layer${toLoad.length !== 1 ? 's' : ''} (${total} features) from ${file.name}`, 'success');
+    toast(`${file.name}: ${toLoad.length} layer${toLoad.length!==1?'s':''}, ${total} feature${total!==1?'s':''} loaded`, 'success');
   } catch(err) { hideProgress(); toast(`KML error: ${err.message}`, 'error'); }
 }
 
@@ -330,7 +335,7 @@ async function loadKMZ(file) {
 
     toLoad.forEach(l => addLayer(l.geojson, l.name, 'EPSG:4326', 'KMZ'));
     const total = toLoad.reduce((s, l) => s + l.geojson.features.length, 0);
-    toast(`Loaded ${toLoad.length} layer${toLoad.length !== 1 ? 's' : ''} (${total} features) from ${file.name}`, 'success');
+    toast(`${file.name}: ${toLoad.length} layer${toLoad.length!==1?'s':''}, ${total} feature${total!==1?'s':''} loaded`, 'success');
   } catch(err) { hideProgress(); toast(`KMZ error: ${err.message}`, 'error'); }
 }
 
@@ -344,7 +349,7 @@ async function loadGeoJSON(file) {
     setProgress(90, 'Rendering…');
     addLayer(geojson, file.name.replace(/\.(geo)?json$/i,''), 'EPSG:4326', 'GeoJSON');
     hideProgress();
-    toast(`Loaded: ${file.name} (${geojson.features.length} features)`, 'success');
+    toast(`${file.name}: ${geojson.features.length} feature${geojson.features.length!==1?'s':''} loaded`, 'success');
   } catch(err) { hideProgress(); toast(`GeoJSON error: ${err.message}`, 'error'); }
 }
 
@@ -424,7 +429,7 @@ async function loadZIP(file) {
 
     hideProgress();
     if (loadedCount > 0) {
-      toast(`Loaded ${loadedCount} layer${loadedCount !== 1 ? 's' : ''} from ZIP: ${file.name}${errors.length ? ' (' + errors.length + ' failed)' : ''}`, loadedCount > 0 ? 'success' : 'error');
+      toast(`${file.name}: ${loadedCount} layer${loadedCount!==1?'s':''} loaded${errors.length?' ('+errors.length+' failed)':''}`, loadedCount > 0 ? 'success' : 'error');
     }
     if (errors.length > 0) {
       errors.forEach(e => toast('ZIP error: ' + e, 'error'));
@@ -547,7 +552,7 @@ async function loadGeoPackage(file) {
     db.close();
     hideProgress();
     if (loadedCount > 0) {
-      toast(`Loaded ${loadedCount} layer${loadedCount !== 1 ? 's' : ''} from ${file.name}`, 'success');
+      toast(`${file.name}: ${loadedCount} layer${loadedCount!==1?'s':''} loaded`, 'success');
     } else {
       toast('No readable feature layers found in GeoPackage', 'error');
     }

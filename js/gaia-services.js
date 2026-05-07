@@ -43,6 +43,7 @@ async function loadGeoJSONURL() {
   if (!url) { setURLStatus('Please enter a URL', 'error'); return; }
   if (!_isValidURL(url)) { setURLStatus('Invalid URL — must start with http:// or https://', 'error'); return; }
   setURLStatus('Fetching…', 'loading');
+  mapLoadBar.start();
   try {
     const resp = await fetch(url, { signal: AbortSignal.timeout(CONSTANTS.FETCH_TIMEOUT_MS) });
     if (!resp.ok) throw new Error('HTTP ' + resp.status + ': ' + resp.statusText);
@@ -50,9 +51,11 @@ async function loadGeoJSONURL() {
     if (!geojson.features && geojson.type === 'Feature') geojson = { type:'FeatureCollection', features:[geojson] };
     if (!geojson.features) throw new Error('Response is not a valid GeoJSON FeatureCollection');
     addLayer(geojson, name, 'EPSG:4326', 'GeoJSON (URL)');
+    mapLoadBar.done();
     setURLStatus('Loaded ' + geojson.features.length + ' features', 'success');
     document.getElementById('url-geojson').value = '';
   } catch(err) {
+    mapLoadBar.done();
     setURLStatus('Error: ' + err.message + (err.message.includes('fetch') ? ' — check CORS' : ''), 'error');
   }
 }

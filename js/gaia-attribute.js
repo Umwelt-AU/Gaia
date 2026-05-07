@@ -54,13 +54,33 @@ function updateLegend() {
   const legendBody = document.getElementById('legend-body');
   if (!legendBody) return;
 
-  const visibleLayers = state.layers.filter(l => l && l.visible && !l.isTile);
+  const visibleLayers = state.layers.filter(l => l && l.visible && (!l.isTile || l.isDEALayer));
   if (!visibleLayers.length) {
     legendBody.innerHTML = '<div style="font-family:var(--mono);font-size:9px;color:var(--text3);padding:4px 0;">No visible layers</div>';
     return;
   }
 
   legendBody.innerHTML = visibleLayers.map(l => {
+    // ── DEA LANDCOVER raster layer ────────────────────────────────────────
+    if (l.isDEALayer) {
+      const styleLabel = l.deaStyle === 'level3' ? 'Level 3' : 'Level 4';
+      const cats = (typeof _DEA_CATEGORIES !== 'undefined') ? _DEA_CATEGORIES : [];
+      const swatches = cats.map(cat =>
+        `<div style="display:flex;align-items:center;gap:5px;padding:1px 0 1px 18px;">
+          <div style="width:12px;height:12px;border-radius:2px;background:${cat.color};flex-shrink:0;border:1px solid rgba(0,0,0,0.12);"></div>
+          <span style="font-family:var(--mono);font-size:9px;color:var(--text2);overflow:hidden;text-overflow:ellipsis;white-space:nowrap;">${cat.label}</span>
+        </div>`
+      ).join('');
+      return `<div style="padding:3px 2px;margin-bottom:4px;border-radius:3px;">
+        <div style="display:flex;align-items:center;gap:6px;margin-bottom:4px;">
+          <span style="font-size:9px;color:var(--text3);flex-shrink:0;">🛰</span>
+          <span style="font-family:var(--mono);font-size:10px;color:var(--text2);font-weight:600;overflow:hidden;text-overflow:ellipsis;white-space:nowrap;flex:1;">${escHtml(l.name)}</span>
+          <span style="font-family:var(--mono);font-size:9px;color:var(--text3);flex-shrink:0;padding:1px 4px;background:var(--bg3);border:1px solid var(--border);border-radius:3px;">${escHtml(styleLabel)}</span>
+        </div>
+        ${swatches}
+        <div style="font-family:var(--mono);font-size:8px;color:var(--text3);padding-left:18px;margin-top:3px;">© Geoscience Australia / DEA</div>
+      </div>`;
+    }
     const idx       = state.layers.indexOf(l);
     const geomType  = l.geomType || '';
     const isPoint   = geomType.includes('Point');
@@ -706,18 +726,35 @@ function clearAll(){
 }
 
 function toggleSection(header){
-  const body=header.nextElementSibling;
-  const collapsed=header.classList.toggle('collapsed');
-  // Use display:none for reliable collapse regardless of content height
-  body.style.display = collapsed ? 'none' : '';
-  body.style.overflow = collapsed ? 'hidden' : '';
+  const body = header.nextElementSibling;
+  const collapsed = header.classList.toggle('collapsed');
+  body.classList.toggle('collapsed-body', collapsed);
 }
 
-function toast(msg,type='info'){
-  const icons={success:'✅',error:'❌',info:'ℹ️'};
-  const el=document.createElement('div'); el.className=`toast ${type}`;
-  el.innerHTML=`<span>${icons[type]||'ℹ️'}</span><span>${msg}</span>`;
+function toast(msg, type='info') {
+  const icons = {
+    success: `<svg width="14" height="14" viewBox="0 0 16 16" fill="none" xmlns="http://www.w3.org/2000/svg"><circle cx="8" cy="8" r="7" fill="#3a9050" opacity="0.15"/><path d="M4.5 8l2.5 2.5 4.5-5" stroke="#3a9050" stroke-width="1.8" stroke-linecap="round" stroke-linejoin="round"/></svg>`,
+    error:   `<svg width="14" height="14" viewBox="0 0 16 16" fill="none" xmlns="http://www.w3.org/2000/svg"><circle cx="8" cy="8" r="7" fill="#c8504a" opacity="0.15"/><path d="M5.5 5.5l5 5M10.5 5.5l-5 5" stroke="#c8504a" stroke-width="1.8" stroke-linecap="round"/></svg>`,
+    info:    `<svg width="14" height="14" viewBox="0 0 16 16" fill="none" xmlns="http://www.w3.org/2000/svg"><circle cx="8" cy="8" r="7" fill="#2e8b8b" opacity="0.15"/><path d="M8 7v4M8 5.5v.5" stroke="#2e8b8b" stroke-width="1.8" stroke-linecap="round"/></svg>`,
+  };
+  const dur = CONSTANTS.TOAST_DURATION_MS;
+  const el = document.createElement('div');
+  el.className = `toast ${type}`;
+  el.style.setProperty('--toast-dur', dur + 'ms');
+  el.innerHTML = `<div class="toast-inner">
+    <span class="toast-icon">${icons[type] || icons.info}</span>
+    <span class="toast-msg">${escHtml(msg)}</span>
+  </div>
+  <div class="toast-progress"></div>`;
+
+  const dismiss = () => {
+    if (el.classList.contains('dismissing')) return;
+    el.classList.add('dismissing');
+    setTimeout(() => el.remove(), 200);
+  };
+  el.addEventListener('click', dismiss);
+
   document.getElementById('toast-container').appendChild(el);
-  setTimeout(()=>el.remove(), CONSTANTS.TOAST_DURATION_MS);
+  setTimeout(dismiss, dur);
 }
 
