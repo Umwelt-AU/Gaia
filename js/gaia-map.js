@@ -106,6 +106,7 @@ state.map.on('load', () => {
     'source-layer': 'building',
     type: 'fill-extrusion',
     minzoom: 13,
+    layout: { visibility: 'visible' },
     paint: {
       'fill-extrusion-color': [
         'interpolate', ['linear'], ['get', 'render_height'],
@@ -129,6 +130,7 @@ state.map.on('load', () => {
     'source-layer': 'building',
     type: 'fill',
     minzoom: 13,
+    layout: { visibility: 'visible' },
     paint: {
       'fill-color':   '#000000',
       'fill-opacity': 0
@@ -142,6 +144,7 @@ state.map.on('load', () => {
     'source-layer': 'building',
     type: 'fill-extrusion',
     minzoom: 13,
+    layout: { visibility: 'visible' },
     filter: ['==', ['get', 'osm_id'], ''],
     paint: {
       'fill-extrusion-color':   '#14b1e7',
@@ -150,6 +153,25 @@ state.map.on('load', () => {
       'fill-extrusion-opacity': 0.75
     }
   });
+
+  // Register 3D buildings as a controllable layer in the layer list
+  state.layers.unshift({
+    name: '3D Buildings',
+    is3DBuildings: true,
+    isTile: true,
+    visible: true,
+    layerOpacity: 0.85,
+    color: '#9fb3ba',
+    format: 'OSM',
+    geomType: 'Polygon',
+    mapId: null,
+  });
+  if (typeof updateLayerList === 'function') {
+    updateLayerList();
+    if (typeof updateExportLayerList === 'function') updateExportLayerList();
+    if (typeof updateSBLLayerList    === 'function') updateSBLLayerList();
+    if (typeof updateDQALayerList    === 'function') updateDQALayerList();
+  }
 
   // Left-click: use fill layer for correct geometry, highlight via extrusion layer
   state.map.on('click', '3d-buildings-fill', function(e) {

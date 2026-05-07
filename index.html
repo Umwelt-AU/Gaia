@@ -458,7 +458,8 @@
           <option value="dark">CartoDB Dark</option>
           <option value="QLD_Imagery">Queensland Imagery</option>
           <option value="NSW_Imagery">New South Wales Imagery</option>
-          <option value="SA_Imagery">South Australia Imagery</option>
+          <option value="ACT_Imagery">ACT Imagery</option>
+          <option value="googleSatellite">Google Satellite</option>
           <option value="satellite">ESRI Satellite</option>
           <option value="satelliteHybrid">Satellite Hybrid</option>
           <option value="none">None</option>
@@ -1630,9 +1631,7 @@
 
   <div style="margin-bottom:6px;">
     <label style="font-size:9px;color:var(--text3);display:block;margin-bottom:3px;
-      font-family:var(--mono);letter-spacing:0.5px;text-transform:uppercase;">
-      AOI Type
-    </label>
+      font-family:var(--mono);letter-spacing:0.5px;text-transform:uppercase;">AOI Type</label>
     <select id="aoi-type" onchange="onAOITypeChange()">
       <option value="draw">Draw Polygon</option>
       <option value="upload">Upload (GeoJSON)</option>
@@ -1641,22 +1640,66 @@
   </div>
 
   <div id="aoi-layer-row" style="display:none;margin-bottom:6px;">
-    <select id="aoi-layer-select">
-      <option value="">— select layer —</option>
-    </select>
+    <label style="font-size:9px;color:var(--text3);display:block;margin-bottom:3px;
+      font-family:var(--mono);letter-spacing:0.5px;text-transform:uppercase;">Layer</label>
+    <select id="aoi-layer-select"><option value="">— select layer —</option></select>
   </div>
 
   <div id="aoi-upload-row" style="display:none;margin-bottom:6px;">
-    <input type="file" id="aoi-file" />
+    <label style="font-size:9px;color:var(--text3);display:block;margin-bottom:3px;
+      font-family:var(--mono);letter-spacing:0.5px;text-transform:uppercase;">GeoJSON File</label>
+    <input type="file" id="aoi-file" accept=".geojson,.json" style="font-size:9px;width:100%;" />
+  </div>
+
+  <div style="display:grid;grid-template-columns:1fr 1fr;gap:6px;margin-bottom:6px;">
+    <div>
+      <label style="font-size:9px;color:var(--text3);display:block;margin-bottom:3px;
+        font-family:var(--mono);letter-spacing:0.5px;text-transform:uppercase;">Year</label>
+      <select id="dea-year" style="width:100%;" onchange="_reloadDEALayerIfActive()">
+        <option value="2024">2024 (latest)</option>
+        <option value="2023">2023</option>
+        <option value="2022">2022</option>
+        <option value="2021">2021</option>
+        <option value="2020">2020</option>
+        <option value="2019">2019</option>
+        <option value="2018">2018</option>
+        <option value="2017">2017</option>
+        <option value="2016">2016</option>
+        <option value="2015">2015</option>
+        <option value="2010">2010</option>
+        <option value="2005">2005</option>
+        <option value="2000">2000</option>
+        <option value="1995">1995</option>
+        <option value="1990">1990</option>
+        <option value="1988">1988</option>
+      </select>
+    </div>
+    <div>
+      <label style="font-size:9px;color:var(--text3);display:block;margin-bottom:3px;
+        font-family:var(--mono);letter-spacing:0.5px;text-transform:uppercase;">Style</label>
+      <select id="dea-style" style="width:100%;" onchange="_reloadDEALayerIfActive()">
+        <option value="level4">Detailed (Level 4)</option>
+        <option value="level3">Basic (Level 3)</option>
+      </select>
+    </div>
   </div>
 
   <div style="display:flex;gap:4px;margin-bottom:6px;">
     <button class="btn btn-primary" style="flex:1;font-size:9px;" id="ep-draw-btn" onclick="activateAOIDraw()">✎ Draw AOI</button>
-    <button class="btn btn-ghost btn-sm" style="font-size:9px;" onclick="clearAOI()">✕</button>
+    <button class="btn btn-ghost btn-sm" style="font-size:9px;" onclick="clearAOI()" title="Clear">✕</button>
   </div>
 
+  <button class="btn btn-ghost btn-full" id="dea-layer-btn" onclick="toggleDEALayer()"
+    style="font-size:9px;margin-bottom:6px;" data-active="0">🗺 Show DEA Layer</button>
+
+  <div style="font-size:9px;color:var(--text3);line-height:1.5;margin-bottom:4px;">
+    Draw or select an AOI to classify using DEA Landcover Landsat Level 4 (Geoscience Australia).
+    Covers Australia 1988–2024 at 30 m resolution. Double-click to finish drawing.
+  </div>
+
+  <div id="aoi-result" style="display:none;border-top:1px solid var(--border);margin-top:4px;padding-top:4px;"></div>
+
 </div>
-<div id="aoi-result"></div>
 
 
 

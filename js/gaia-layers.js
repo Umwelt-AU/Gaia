@@ -44,6 +44,16 @@ function _renderMapLayer(layer, idx) {
   const op    = layer.layerOpacity ?? 1;
   const vis   = layer.visible ? 'visible' : 'none';
 
+  if (layer.is3DBuildings) {
+    const vis = layer.visible ? 'visible' : 'none';
+    const op  = layer.layerOpacity ?? 0.85;
+    ['3d-buildings', '3d-buildings-fill', '3d-buildings-highlight'].forEach(id => {
+      try { state.map.setLayoutProperty(id, 'visibility', vis); } catch(_) {}
+    });
+    try { state.map.setPaintProperty('3d-buildings', 'fill-extrusion-opacity', layer.visible ? op : 0); } catch(_) {}
+    return;
+  }
+
   if (layer.isTile) {
     // Tile layer — add as a raster source
     if (!state.map.getSource(mapId)) {
@@ -816,7 +826,14 @@ function toggleLayerVisibility(i) {
 
 function _removeLayerImmediate(i) {
   const layer = state.layers[i];
-  if (layer) _removeMapLayers(_layerMapId(i));
+  if (layer && layer.is3DBuildings) {
+    ['3d-buildings-highlight', '3d-buildings-fill', '3d-buildings'].forEach(id => {
+      try { if (state.map.getLayer(id)) state.map.removeLayer(id); } catch(_) {}
+    });
+    try { if (state.map.getSource('maptiler-v3')) state.map.removeSource('maptiler-v3'); } catch(_) {}
+  } else if (layer) {
+    _removeMapLayers(_layerMapId(i));
+  }
   state.layers.splice(i, 1);
   if (state.activeLayerIndex >= state.layers.length) state.activeLayerIndex = state.layers.length - 1;
   // Re-assign mapIds for all layers after the removed one

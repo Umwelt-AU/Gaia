@@ -66,8 +66,16 @@ const BASEMAPS = {
   light:            { url:'https://{s}.basemaps.cartocdn.com/light_all/{z}/{x}/{y}{r}.png', attr:'© CARTO', maxZoom:19 },
   dark:             { url:'https://{s}.basemaps.cartocdn.com/dark_all/{z}/{x}/{y}{r}.png', attr:'© CARTO', maxZoom:19 },
   topo:             { url:'https://{s}.tile.opentopomap.org/{z}/{x}/{y}.png', attr:'© OpenTopoMap', maxZoom:17 },
+  // SA_Imagery: service at location.sa.gov.au is currently unavailable (404)
+  NSW_Imagery: { url: 'https://maps.six.nsw.gov.au/arcgis/rest/services/public/NSW_Imagery/MapServer/tile/{z}/{y}/{x}', attr: '© NSW Spatial Services', maxZoom: 18 },
+  QLD_Imagery: { url:'https://spatial-img.information.qld.gov.au/arcgis/rest/services/Basemaps/LatestStateProgram_AllUsers/ImageServer/tile/{z}/{y}/{x}', attr:'© Queensland Government', maxZoom:19 },
+  ACT_Imagery: { url:'https://services.data.act.gov.au/arcgis/rest/services/ACT_Imagery/MapServer/tile/{z}/{y}/{x}', attr:'© ACT Government', maxZoom:19 },
+  // WA_Imagery: Orthophoto_Latest service removed; replacement (Locate/ImageServer) has no tile cache
+  // VIC_Imagery: services.land.vic.gov.au host is unreachable; Vicmap Basemaps now requires licensing
+  googleSatellite:  { url:'http://mt0.google.com/vt/lyrs=s&hl=en&x={x}&y={y}&z={z}', attr:'© Google', maxZoom:20 },
   satellite:        { url:'https://server.arcgisonline.com/ArcGIS/rest/services/World_Imagery/MapServer/tile/{z}/{y}/{x}', attr:'© Esri', maxZoom:19 },
   satelliteHybrid:  { url:'https://server.arcgisonline.com/ArcGIS/rest/services/World_Imagery/MapServer/tile/{z}/{y}/{x}', attr:'© Esri', maxZoom:19,
+  
                       overlay: 'https://{s}.basemaps.cartocdn.com/light_only_labels/{z}/{x}/{y}{r}.png' },
   none:             null,
 };

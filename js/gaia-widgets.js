@@ -104,6 +104,8 @@ function handleWidgetDblClick(e) {
     finishMeasure();
   } else if (widgetState.mode === 'sbl') {
     endSBLDraw();
+  } else if (widgetState.mode === 'aoi') {
+    _finishAOIDraw();
   }
 }
 
@@ -1073,233 +1075,412 @@ function makePanelDraggable(panel, handle) {
 
 
 //////////////////////////////
-// AOI LAND CLASSIFICATION TOOL
-// Draw → Double-click → Classify → Raster
+// AOI LAND CLASSIFICATION TOOL — DEA Landcover Landsat Level 4
 //////////////////////////////
 
-// ==========================
-// START AOI DRAWING
-// ==========================
-function activateAOIDraw() {
-  clearWidgetDraw();
-  clearMeasure();
+const _DEA_URL = 'https://di-daa.img.arcgis.com/arcgis/rest/services/Land_and_vegetation/DEA_Landcover_Landsat_Level4/ImageServer';
+const _DEA_PIXEL_AREA = 900; // 30 m × 30 m
 
-  widgetState.mode = 'aoi';
-  widgetState.points = [];
+// Full pixel value → { label, color } lookup (uint8; 255 = no data)
+const _DEA_CLASSES = {
+  // Cultivated Terrestrial Vegetated (1–18)
+  1:  { label: 'Cultivated Terrestrial Vegetated',                                color: '#d4b030' },
+  2:  { label: 'Cultivated: Woody',                                               color: '#c8a020' },
+  3:  { label: 'Cultivated: Herbaceous',                                          color: '#dcc040' },
+  4:  { label: 'Cultivated: Closed (>65%)',                                       color: '#b89010' },
+  5:  { label: 'Cultivated: Open (40–65%)',                                       color: '#c8a020' },
+  6:  { label: 'Cultivated: Open (15–40%)',                                       color: '#d8b030' },
+  7:  { label: 'Cultivated: Sparse (4–15%)',                                      color: '#e0c040' },
+  8:  { label: 'Cultivated: Scattered (1–4%)',                                    color: '#e8cc50' },
+  9:  { label: 'Cultivated: Woody Closed (>65%)',                                 color: '#a88010' },
+  10: { label: 'Cultivated: Woody Open (40–65%)',                                 color: '#b89020' },
+  11: { label: 'Cultivated: Woody Open (15–40%)',                                 color: '#c8a030' },
+  12: { label: 'Cultivated: Woody Sparse (4–15%)',                                color: '#d8b040' },
+  13: { label: 'Cultivated: Woody Scattered (1–4%)',                              color: '#e0bc50' },
+  14: { label: 'Cultivated: Herbaceous Closed (>65%)',                            color: '#c0a820' },
+  15: { label: 'Cultivated: Herbaceous Open (40–65%)',                            color: '#d0b830' },
+  16: { label: 'Cultivated: Herbaceous Open (15–40%)',                            color: '#e0c840' },
+  17: { label: 'Cultivated: Herbaceous Sparse (4–15%)',                           color: '#e8d050' },
+  18: { label: 'Cultivated: Herbaceous Scattered (1–4%)',                         color: '#f0d860' },
+  // Natural Terrestrial Vegetated (19–36)
+  19: { label: 'Natural Terrestrial Vegetated',                                   color: '#3a8040' },
+  20: { label: 'Natural Terrestrial: Woody',                                      color: '#2a6e30' },
+  21: { label: 'Natural Terrestrial: Herbaceous',                                 color: '#5a9850' },
+  22: { label: 'Natural Terrestrial: Closed (>65%)',                              color: '#1a5a28' },
+  23: { label: 'Natural Terrestrial: Open (40–65%)',                              color: '#2a6e30' },
+  24: { label: 'Natural Terrestrial: Open (15–40%)',                              color: '#3a8040' },
+  25: { label: 'Natural Terrestrial: Sparse (4–15%)',                             color: '#5a9850' },
+  26: { label: 'Natural Terrestrial: Scattered (1–4%)',                           color: '#7ab068' },
+  27: { label: 'Natural Terrestrial: Woody Closed (>65%)',                        color: '#1a4e20' },
+  28: { label: 'Natural Terrestrial: Woody Open (40–65%)',                        color: '#2a5e28' },
+  29: { label: 'Natural Terrestrial: Woody Open (15–40%)',                        color: '#3a7030' },
+  30: { label: 'Natural Terrestrial: Woody Sparse (4–15%)',                       color: '#4a8040' },
+  31: { label: 'Natural Terrestrial: Woody Scattered (1–4%)',                     color: '#5a9050' },
+  32: { label: 'Natural Terrestrial: Herbaceous Closed (>65%)',                   color: '#3a8848' },
+  33: { label: 'Natural Terrestrial: Herbaceous Open (40–65%)',                   color: '#4a9858' },
+  34: { label: 'Natural Terrestrial: Herbaceous Open (15–40%)',                   color: '#5aa868' },
+  35: { label: 'Natural Terrestrial: Herbaceous Sparse (4–15%)',                  color: '#6ab878' },
+  36: { label: 'Natural Terrestrial: Herbaceous Scattered (1–4%)',                color: '#7ac888' },
+  // Natural Aquatic Vegetated (55–92)
+  55: { label: 'Natural Aquatic Vegetated',                                        color: '#2a8878' },
+  56: { label: 'Natural Aquatic: Woody',                                           color: '#1a6868' },
+  57: { label: 'Natural Aquatic: Herbaceous',                                      color: '#3a9888' },
+  58: { label: 'Natural Aquatic: Closed (>65%)',                                   color: '#1a5858' },
+  59: { label: 'Natural Aquatic: Open (40–65%)',                                   color: '#2a6868' },
+  60: { label: 'Natural Aquatic: Open (15–40%)',                                   color: '#3a7878' },
+  61: { label: 'Natural Aquatic: Sparse (4–15%)',                                  color: '#4a8888' },
+  62: { label: 'Natural Aquatic: Scattered (1–4%)',                                color: '#5a9898' },
+  63: { label: 'Natural Aquatic: Woody Closed (>65%)',                             color: '#1a5060' },
+  64: { label: 'Natural Aquatic: Woody Closed (>65%) Semi-permanent',              color: '#1a5868' },
+  65: { label: 'Natural Aquatic: Woody Closed (>65%) Temporary',                   color: '#2a6070' },
+  66: { label: 'Natural Aquatic: Woody Open (40–65%)',                             color: '#1a6060' },
+  67: { label: 'Natural Aquatic: Woody Open (40–65%) Semi-permanent',              color: '#1a6868' },
+  68: { label: 'Natural Aquatic: Woody Open (40–65%) Temporary',                   color: '#2a7070' },
+  69: { label: 'Natural Aquatic: Woody Open (15–40%)',                             color: '#2a7070' },
+  70: { label: 'Natural Aquatic: Woody Open (15–40%) Semi-permanent',              color: '#2a7878' },
+  71: { label: 'Natural Aquatic: Woody Open (15–40%) Temporary',                   color: '#3a8080' },
+  72: { label: 'Natural Aquatic: Woody Sparse (4–15%)',                            color: '#3a7878' },
+  73: { label: 'Natural Aquatic: Woody Sparse (4–15%) Semi-permanent',             color: '#3a8080' },
+  74: { label: 'Natural Aquatic: Woody Sparse (4–15%) Temporary',                  color: '#4a8888' },
+  75: { label: 'Natural Aquatic: Woody Scattered (1–4%)',                          color: '#4a8888' },
+  76: { label: 'Natural Aquatic: Woody Scattered (1–4%) Semi-permanent',           color: '#4a9090' },
+  77: { label: 'Natural Aquatic: Woody Scattered (1–4%) Temporary',                color: '#5a9898' },
+  78: { label: 'Natural Aquatic: Herbaceous Closed (>65%)',                        color: '#2a9898' },
+  79: { label: 'Natural Aquatic: Herbaceous Closed (>65%) Semi-permanent',         color: '#2aa0a0' },
+  80: { label: 'Natural Aquatic: Herbaceous Closed (>65%) Temporary',              color: '#3aa8a8' },
+  81: { label: 'Natural Aquatic: Herbaceous Open (40–65%)',                        color: '#3a9090' },
+  82: { label: 'Natural Aquatic: Herbaceous Open (40–65%) Semi-permanent',         color: '#3a9898' },
+  83: { label: 'Natural Aquatic: Herbaceous Open (40–65%) Temporary',              color: '#4aa0a0' },
+  84: { label: 'Natural Aquatic: Herbaceous Open (15–40%)',                        color: '#4a9898' },
+  85: { label: 'Natural Aquatic: Herbaceous Open (15–40%) Semi-permanent',         color: '#4aa0a0' },
+  86: { label: 'Natural Aquatic: Herbaceous Open (15–40%) Temporary',              color: '#5aa8a8' },
+  87: { label: 'Natural Aquatic: Herbaceous Sparse (4–15%)',                       color: '#5aa0a0' },
+  88: { label: 'Natural Aquatic: Herbaceous Sparse (4–15%) Semi-permanent',        color: '#5aa8a8' },
+  89: { label: 'Natural Aquatic: Herbaceous Sparse (4–15%) Temporary',             color: '#6ab0b0' },
+  90: { label: 'Natural Aquatic: Herbaceous Scattered (1–4%)',                     color: '#6aa8a8' },
+  91: { label: 'Natural Aquatic: Herbaceous Scattered (1–4%) Semi-permanent',      color: '#6ab0b0' },
+  92: { label: 'Natural Aquatic: Herbaceous Scattered (1–4%) Temporary',           color: '#7ab8b8' },
+  // Other
+  93:  { label: 'Artificial Surface',                       color: '#8a7060' },
+  94:  { label: 'Natural Surface',                          color: '#c09860' },
+  95:  { label: 'Natural Surface: Sparsely vegetated',      color: '#c8a870' },
+  96:  { label: 'Natural Surface: Very sparsely vegetated', color: '#d0b880' },
+  97:  { label: 'Natural Surface: Bare, unvegetated',       color: '#b88848' },
+  98:  { label: 'Water',                                    color: '#2060b0' },
+  99:  { label: 'Water',                                    color: '#2868b8' },
+  100: { label: 'Water: Tidal area',                        color: '#3878c0' },
+  101: { label: 'Water: Perennial (>9 months)',             color: '#1858a8' },
+  102: { label: 'Water: Non-perennial (7–9 months)',        color: '#2868b0' },
+  103: { label: 'Water: Non-perennial (4–6 months)',        color: '#3878b8' },
+  104: { label: 'Water: Non-perennial (1–3 months)',        color: '#4888c0' },
+};
 
-  const map = state.map;
-  map.getCanvas().style.cursor = 'crosshair';
+// Top-level category groupings for the overview bar
+const _DEA_CATEGORIES = [
+  { label: 'Cultivated',          color: '#c8a020', codes: [1,2,3,4,5,6,7,8,9,10,11,12,13,14,15,16,17,18] },
+  { label: 'Natural Terrestrial', color: '#3a8040', codes: [19,20,21,22,23,24,25,26,27,28,29,30,31,32,33,34,35,36] },
+  { label: 'Natural Aquatic',     color: '#2a8878', codes: [55,56,57,58,59,60,61,62,63,64,65,66,67,68,69,70,71,72,73,74,75,76,77,78,79,80,81,82,83,84,85,86,87,88,89,90,91,92] },
+  { label: 'Artificial Surface',  color: '#8a7060', codes: [93] },
+  { label: 'Natural Surface',     color: '#c09860', codes: [94,95,96,97] },
+  { label: 'Water',               color: '#2060b0', codes: [98,99,100,101,102,103,104] },
+];
 
-  const btn = document.getElementById('aoi-draw-btn');
-  if (btn) {
-    btn.style.borderColor = 'var(--accent)';
-    btn.style.color = 'var(--accent)';
-    btn.style.background = 'rgba(57,211,83,0.1)';
-  }
-
-  const endBtn = document.getElementById('aoi-end-btn');
-  if (endBtn) endBtn.style.display = 'none';
-
-  // prevent default zoom on double click
-  map.doubleClickZoom?.disable?.();
-
-  map.on('dblclick', handleAOIDoubleClick);
-
-  toast('Click to draw AOI. Double-click to finish.', 'info');
+// AOI helper: approximate ring area in m² (WGS84 input)
+function _lcRingArea(ring) {
+  if (ring.length < 3) return 0;
+  const R = 6371000;
+  const ox = ring[0][0], oy = ring[0][1];
+  const cosLat = Math.cos(oy * Math.PI / 180);
+  const xy = ring.map(p => [(p[0] - ox) * Math.PI / 180 * R * cosLat, (p[1] - oy) * Math.PI / 180 * R]);
+  let area = 0;
+  for (let i = 0; i < xy.length; i++) { const j = (i + 1) % xy.length; area += xy[i][0] * xy[j][1] - xy[j][0] * xy[i][1]; }
+  return Math.abs(area / 2);
 }
 
-
-// ==========================
-// MAP DOUBLE CLICK HANDLER
-// ==========================
-function handleAOIDoubleClick(e) {
-  if (widgetState.mode !== 'aoi') return;
-
-  e.preventDefault?.();
-
-  endAOIDraw();
+function onAOITypeChange() {
+  const type = document.getElementById('aoi-type').value;
+  document.getElementById('aoi-layer-row').style.display  = type === 'existing' ? '' : 'none';
+  document.getElementById('aoi-upload-row').style.display = type === 'upload'   ? '' : 'none';
+  const btn = document.getElementById('ep-draw-btn');
+  if (btn) btn.textContent = type === 'draw' ? '✎ Draw AOI' : '▶ Run Classification';
 }
 
+function updateLandClassifyUI() {
+  const sel = document.getElementById('aoi-layer-select');
+  if (!sel) return;
+  const prev = sel.value;
+  sel.innerHTML = '<option value="">— select layer —</option>';
+  (state.layers || []).forEach((l, i) => {
+    if (l.isTile || l.is3DBuildings) return;
+    const opt = document.createElement('option');
+    opt.value = i; opt.textContent = l.name; sel.appendChild(opt);
+  });
+  if (prev) sel.value = prev;
+}
 
-// ==========================
-// END AOI DRAWING
-// ==========================
-function endAOIDraw() {
+function _deaWMSTileURL(year, style) {
+  return 'https://ows.dea.ga.gov.au/wms?SERVICE=WMS&VERSION=1.3.0&REQUEST=GetMap' +
+    '&LAYERS=ga_ls_landcover_c3' +
+    `&STYLES=${encodeURIComponent(style)}` +
+    '&FORMAT=image%2Fpng&TRANSPARENT=TRUE' +
+    '&CRS=EPSG%3A3857&WIDTH=256&HEIGHT=256' +
+    `&TIME=${encodeURIComponent(year + '-01-01')}` +
+    '&BBOX={bbox-epsg-3857}';
+}
+
+function toggleDEALayer() {
   const map = state.map;
+  const btn   = document.getElementById('dea-layer-btn');
+  const year  = document.getElementById('dea-year')?.value  || '2024';
+  const style = document.getElementById('dea-style')?.value || 'level4';
 
-  map.off('dblclick', handleAOIDoubleClick);
+  // Remove existing layer/source first (handles both toggle-off and style/year reload)
+  try { if (map.getLayer('dea-landcover'))    map.removeLayer('dea-landcover'); }    catch(_) {}
+  try { if (map.getSource('dea-landcover-src')) map.removeSource('dea-landcover-src'); } catch(_) {}
 
-  if (!widgetState.points || widgetState.points.length < 3) {
-    toast('Draw at least 3 points for AOI polygon', 'error');
-    resetAOIButton();
+  // If layer was visible, toggling off — stop here
+  if (btn?.dataset.active === '1') {
+    btn.dataset.active = '0';
+    btn.textContent = '🗺 Show DEA Layer';
+    btn.style.borderColor = ''; btn.style.color = '';
     return;
   }
 
-  runAOIPolygon();
+  map.addSource('dea-landcover-src', {
+    type: 'raster',
+    tiles: [_deaWMSTileURL(year, style)],
+    tileSize: 256,
+    attribution: '© Geoscience Australia / DEA'
+  });
+  map.addLayer({ id: 'dea-landcover', type: 'raster', source: 'dea-landcover-src',
+    paint: { 'raster-opacity': 0.8 } });
 
-  clearWidgetDraw();
-  resetAOIButton();
-}
-
-
-// ==========================
-// RESET UI STATE
-// ==========================
-function resetAOIButton() {
-  widgetState.mode = null;
-
-  const btn = document.getElementById('aoi-draw-btn');
   if (btn) {
-    btn.style.borderColor = '';
-    btn.style.color = '';
-    btn.style.background = '';
+    btn.dataset.active = '1';
+    btn.textContent = '🗺 Hide DEA Layer';
+    btn.style.borderColor = 'var(--accent)'; btn.style.color = 'var(--accent)';
   }
 }
 
-
-// ==========================
-// BUILD AOI GEOJSON
-// ==========================
-function buildAOIGeoJSON() {
-  const coords = widgetState.points.map(p => [p.lng, p.lat]);
-
-  // close polygon
-  coords.push([widgetState.points[0].lng, widgetState.points[0].lat]);
-
-  return {
-    type: "Feature",
-    geometry: {
-      type: "Polygon",
-      coordinates: [coords]
-    },
-    properties: {}
-  };
+// Reload the WMS layer when year or style changes while it is visible
+function _reloadDEALayerIfActive() {
+  const btn = document.getElementById('dea-layer-btn');
+  if (btn?.dataset.active !== '1') return;
+  // Temporarily mark as inactive so toggleDEALayer re-adds rather than just removes
+  btn.dataset.active = '0';
+  toggleDEALayer();
 }
 
+function activateAOIDraw() {
+  const type = document.getElementById('aoi-type')?.value || 'draw';
 
-// ==========================
-// RUN LAND CLASSIFICATION
-// ==========================
-async function runAOIPolygon() {
+  if (type === 'existing') {
+    const idx = parseInt(document.getElementById('aoi-layer-select').value);
+    if (isNaN(idx) || !state.layers[idx]) { toast('Select a layer first', 'error'); return; }
+    _runLandClassify(state.layers[idx].geojson);
+    return;
+  }
+  if (type === 'upload') {
+    const file = document.getElementById('aoi-file').files[0];
+    if (!file) { toast('Select a GeoJSON file first', 'error'); return; }
+    const reader = new FileReader();
+    reader.onload = ev => {
+      try { _runLandClassify(JSON.parse(ev.target.result)); }
+      catch (_) { toast('Invalid GeoJSON file', 'error'); }
+    };
+    reader.readAsText(file);
+    return;
+  }
+  // Draw mode
+  clearWidgetDraw();
+  widgetState.mode = 'aoi';
+  widgetState.points = [];
+  state.map.getCanvas().style.cursor = 'crosshair';
+  state.map.doubleClickZoom?.disable?.();
+  const btn = document.getElementById('ep-draw-btn');
+  if (btn) { btn.style.borderColor = 'var(--accent)'; btn.style.color = 'var(--accent)'; btn.style.background = 'rgba(57,211,83,0.1)'; }
+  toast('Click to draw AOI. Double-click to finish.', 'info');
+}
+
+function _finishAOIDraw() {
+  if (widgetState.mode !== 'aoi') return;
+  if (!widgetState.points || widgetState.points.length < 3) {
+    toast('Draw at least 3 points for AOI polygon', 'error');
+    _resetAOIBtn(); clearWidgetDraw(); return;
+  }
+  const pts = [...widgetState.points];
+  clearWidgetDraw(); _resetAOIBtn();
+  _runLandClassify({ type: 'FeatureCollection', features: [{
+    type: 'Feature',
+    geometry: { type: 'Polygon', coordinates: [[...pts.map(p => [p.lng, p.lat]), [pts[0].lng, pts[0].lat]]] },
+    properties: {}
+  }]});
+}
+
+function _resetAOIBtn() {
+  widgetState.mode = null;
+  state.map.doubleClickZoom?.enable?.();
+  const btn = document.getElementById('ep-draw-btn');
+  if (btn) { btn.style.borderColor = ''; btn.style.color = ''; btn.style.background = ''; }
+}
+
+function clearAOI() {
+  _resetAOIBtn(); clearWidgetDraw();
+  const map = state.map;
+  ['lc-aoi-fill', 'lc-aoi-outline'].forEach(id => { try { if (map.getLayer(id)) map.removeLayer(id); } catch(_){} });
+  try { if (map.getSource('lc-aoi-source')) map.removeSource('lc-aoi-source'); } catch(_) {}
+  const box = document.getElementById('aoi-result');
+  if (box) { box.style.display = 'none'; box.innerHTML = ''; }
+}
+
+async function _runLandClassify(geojson) {
+  const map = state.map;
   const resultBox = document.getElementById('aoi-result');
 
-  if (resultBox) {
-    resultBox.style.display = 'block';
-    resultBox.innerHTML = 'Loading landcover...';
+  // Normalise input to a polygon feature
+  let aoiFeat = null;
+  if (geojson.type === 'FeatureCollection') {
+    aoiFeat = (geojson.features || []).find(f => f.geometry &&
+      (f.geometry.type === 'Polygon' || f.geometry.type === 'MultiPolygon'));
+  } else if (geojson.type === 'Feature') {
+    aoiFeat = geojson;
+  } else if (geojson.type === 'Polygon' || geojson.type === 'MultiPolygon') {
+    aoiFeat = { type: 'Feature', geometry: geojson, properties: {} };
   }
+  if (!aoiFeat) { toast('No polygon geometry found in AOI', 'error'); return; }
 
-map.addSource('landcover', {
-  type: 'vector',
-  url: `https://api.maptiler.com/tiles/landcover/tiles.json?key=${GAIA_CONFIG.mapTilerKey}`
-});
+  const rings = aoiFeat.geometry.type === 'MultiPolygon'
+    ? aoiFeat.geometry.coordinates.map(p => p[0])
+    : [aoiFeat.geometry.coordinates[0]];
 
-map.addLayer({
-  'source-layer': 'landcover',
-  'type': 'fill'
-});
+  // Draw AOI boundary on map (clears any previous result box too, so set loading message after)
+  clearAOI();
+  map.addSource('lc-aoi-source', { type: 'geojson', data: { type: 'FeatureCollection', features: [aoiFeat] } });
+  map.addLayer({ id: 'lc-aoi-fill',    type: 'fill', source: 'lc-aoi-source', paint: { 'fill-color': '#14b1e7', 'fill-opacity': 0.08 } });
+  map.addLayer({ id: 'lc-aoi-outline', type: 'line', source: 'lc-aoi-source', paint: { 'line-color': '#14b1e7', 'line-width': 2, 'line-dasharray': [4, 2] } });
 
-  renderLandClassificationRaster(tileUrl);
+  if (resultBox) { resultBox.style.display = 'block'; resultBox.innerHTML = '<div style="font-size:10px;color:var(--text3);padding:8px;">⏳ Querying DEA Landcover…</div>'; }
 
-  if (resultBox) {
-    resultBox.innerHTML = '✅ Landcover loaded (no backend mode)';
-  }
-}
+  // Fit to AOI
+  try {
+    const coords = rings.flat();
+    const lngs = coords.map(c => c[0]), lats = coords.map(c => c[1]);
+    map.fitBounds([[Math.min(...lngs), Math.min(...lats)], [Math.max(...lngs), Math.max(...lats)]], { padding: 80, duration: 700, maxZoom: 14 });
+  } catch(_) {}
 
+  // Project AOI rings from WGS84 → EPSG:3857 for the ArcGIS query
+  const rings3857 = rings.map(ring =>
+    ring.map(pt => { try { return proj4('EPSG:4326', 'EPSG:3857', [pt[0], pt[1]]); } catch(_) { return pt; } })
+  );
 
-// ==========================
-// RASTER RENDERING (MAPBOX)
-// ==========================
-function renderLandClassificationRaster(tileUrl) {
-  const map = state.map;
+  const year = parseInt(document.getElementById('dea-year')?.value || '2024');
+  const geometry3857 = { rings: rings3857, spatialReference: { wkid: 102100 } };
+  const mosaicRule = {
+    mosaicMethod: 'esriMosaicAttribute',
+    sortField: 'datetime',
+    sortValue: `${year + 1}-01-01`,
+    ascending: false
+  };
 
-  if (map.getLayer('land-classification')) {
-    map.removeLayer('land-classification');
-  }
-
-  if (map.getSource('land-classification')) {
-    map.removeSource('land-classification');
-  }
-
-  map.addSource('land-classification', {
-    type: 'raster',
-    tiles: [tileUrl],
-    tileSize: 256
-  });
-
-  map.addLayer({
-    id: 'land-classification',
-    type: 'raster',
-    source: 'land-classification',
-    paint: {
-      'raster-opacity': 0.75
-    }
-  });
-}
-
-
-// ==========================
-// OPTIONAL CLEANUP
-// ==========================
-function clearLandClassification() {
-  const map = state.map;
-
-  if (map.getLayer('land-classification')) {
-    map.removeLayer('land-classification');
-  }
-
-  if (map.getSource('land-classification')) {
-    map.removeSource('land-classification');
-  }
-
-  const box = document.getElementById('aoi-result');
-  if (box) {
-    box.style.display = 'none';
-    box.innerHTML = '';
-  }
-}
-
-function addGaiaBaseLayers() {
-  const map = state.map;
-  const key = GAIA_CONFIG.mapTilerKey;
-
-  const layers = [
-    {
-      id: "gaia-landcover",
-      tileset: "globallandcover",
-      opacity: 0.65
-    },
-    {
-      id: "gaia-landform",
-      tileset: "landform",
-      opacity: 0.5
-    },
-    {
-      id: "gaia-cadastre",
-      tileset: "cadastre",
-      opacity: 0.6
-    }
-  ];
-
-  layers.forEach(l => {
-    const sourceId = l.id + "-source";
-
-    if (map.getSource(sourceId)) return;
-
-    map.addSource(sourceId, {
-      type: "raster",
-      tiles: [
-        `https://api.maptiler.com/tiles/${l.tileset}/{z}/{x}/{y}.png?key=${key}`
-      ],
-      tileSize: 256
+  let counts = null;
+  try {
+    const body = new URLSearchParams({
+      geometry:     JSON.stringify(geometry3857),
+      geometryType: 'esriGeometryPolygon',
+      mosaicRule:   JSON.stringify(mosaicRule),
+      pixelSize:    JSON.stringify({ x: 30, y: 30, spatialReference: { wkid: 102100 } }),
+      f:            'json'
     });
+    const resp = await fetch(`${_DEA_URL}/computeHistograms`, { method: 'POST', body });
+    const data = await resp.json();
+    if (data.error) throw new Error(data.error.message || 'Service error');
+    counts = data.histograms?.[0]?.counts;
+    if (!counts) throw new Error('No histogram data in response');
+  } catch(err) {
+    if (resultBox) resultBox.innerHTML = `<div style="font-size:9px;color:var(--orange);padding:8px;line-height:1.5;">⚠ DEA query failed: ${escHtml(err.message)}<br>Check network connectivity and try again.</div>`;
+    return;
+  }
 
-    map.addLayer({
-      id: l.id,
-      type: "raster",
-      source: sourceId,
-      paint: {
-        "raster-opacity": l.opacity
-      }
-    });
+  // Build class buckets from histogram (counts[i] = pixel count for value i)
+  const aoiArea = rings.reduce((s, r) => s + _lcRingArea(r), 0);
+  const buckets = {}; // pixelValue → m²
+  let classifiedArea = 0;
+  counts.forEach((count, val) => {
+    if (count === 0 || val === 0 || val === 255) return;
+    if (!_DEA_CLASSES[val]) return; // skip unused codes
+    const area = count * _DEA_PIXEL_AREA;
+    buckets[val] = (buckets[val] || 0) + area;
+    classifiedArea += area;
   });
+
+  _renderLCResults(resultBox, buckets, classifiedArea, aoiArea, year);
+}
+
+function _renderLCResults(box, buckets, classifiedArea, aoiArea, year) {
+  if (!box) return;
+  box.style.display = 'block';
+  const sorted = Object.entries(buckets).sort((a, b) => b[1] - a[1]);
+
+  if (!sorted.length) {
+    box.innerHTML = `<div style="font-size:9px;color:var(--text3);padding:8px;line-height:1.6;">
+      No classified pixels found in this area.<br>
+      The DEA dataset covers Australia only (1988–2024).<br>
+      <span style="opacity:0.7;">AOI area: ${fmtArea(aoiArea)}</span></div>`;
+    return;
+  }
+
+  // ── Category overview stacked bar ──
+  const catBars = _DEA_CATEGORIES.map(cat => {
+    const catArea = cat.codes.reduce((s, c) => s + (buckets[c] || 0), 0);
+    const pct = classifiedArea > 0 ? (catArea / classifiedArea) * 100 : 0;
+    return pct > 0 ? `<div title="${escHtml(cat.label)}: ${pct.toFixed(1)}%"
+      style="background:${cat.color};width:${pct.toFixed(2)}%;height:100%;display:inline-block;"></div>` : '';
+  }).join('');
+
+  const catLegend = _DEA_CATEGORIES.filter(cat =>
+    cat.codes.some(c => buckets[c])
+  ).map(cat => {
+    const catArea = cat.codes.reduce((s, c) => s + (buckets[c] || 0), 0);
+    const pct = classifiedArea > 0 ? ((catArea / classifiedArea) * 100).toFixed(1) : '0';
+    return `<span style="display:inline-flex;align-items:center;gap:3px;margin-right:8px;margin-bottom:2px;">
+      <span style="display:inline-block;width:8px;height:8px;border-radius:1px;background:${cat.color};flex-shrink:0;"></span>
+      <span style="font-size:8px;color:var(--text2);">${escHtml(cat.label)} ${pct}%</span>
+    </span>`;
+  }).join('');
+
+  // ── Individual class bar chart rows ──
+  const maxArea = sorted[0][1];
+  const barRows = sorted.map(([val, area]) => {
+    const info = _DEA_CLASSES[val] || { color: '#888', label: `Class ${val}` };
+    const pct     = classifiedArea > 0 ? (area / classifiedArea) * 100 : 0;
+    const barW    = maxArea > 0 ? (area / maxArea) * 100 : 0;
+    return `<div style="display:grid;grid-template-columns:8px 1fr auto auto;align-items:center;gap:4px;padding:2px 0;">
+      <span style="width:8px;height:8px;border-radius:1px;background:${info.color};display:inline-block;flex-shrink:0;"></span>
+      <div style="overflow:hidden;">
+        <div style="font-size:8px;color:var(--text2);white-space:nowrap;overflow:hidden;text-overflow:ellipsis;"
+             title="${escHtml(info.label)}">${escHtml(info.label)}</div>
+        <div style="height:4px;background:var(--border);border-radius:2px;margin-top:1px;">
+          <div style="height:100%;width:${barW.toFixed(1)}%;background:${info.color};border-radius:2px;"></div>
+        </div>
+      </div>
+      <span style="font-size:8px;color:var(--text3);font-family:var(--mono);white-space:nowrap;">${fmtArea(area)}</span>
+      <span style="font-size:8px;color:var(--text3);font-family:var(--mono);white-space:nowrap;min-width:32px;text-align:right;">${pct.toFixed(1)}%</span>
+    </div>`;
+  }).join('');
+
+  box.innerHTML = `
+    <div style="font-size:9px;font-weight:600;color:var(--text2);padding:6px 0 4px;">
+      DEA Landcover ${year} — ${fmtArea(aoiArea)} AOI
+    </div>
+    <div style="height:12px;width:100%;border-radius:3px;overflow:hidden;background:var(--border);margin-bottom:4px;">${catBars}</div>
+    <div style="margin-bottom:8px;line-height:1.6;">${catLegend}</div>
+    <div style="border-top:1px solid var(--border);padding-top:6px;">
+      <div style="font-size:8px;color:var(--text3);font-family:var(--mono);text-transform:uppercase;letter-spacing:0.5px;margin-bottom:4px;">
+        Class breakdown — ${sorted.length} class${sorted.length !== 1 ? 'es' : ''} found
+      </div>
+      ${barRows}
+    </div>
+    <div style="font-size:8px;color:var(--text3);padding-top:6px;border-top:1px solid var(--border);margin-top:6px;line-height:1.5;">
+      Source: Geoscience Australia DEA Landcover Landsat Level 4 · 30 m pixels · ${fmtArea(classifiedArea)} classified
+    </div>`;
 }
