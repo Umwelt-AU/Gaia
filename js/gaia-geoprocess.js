@@ -70,161 +70,6 @@ function _circlePolygon(lng, lat, radiusM, steps) {
 // Steps per quarter-circle arc in buffer output
 const _BUF_ARC_STEPS = 8;
 
-// ── Segment intersection (returns point or null) ──
-function _segIntersect2D(a, b, c, d) {
-  const dx1 = b[0]-a[0], dy1 = b[1]-a[1];
-  const dx2 = d[0]-c[0], dy2 = d[1]-c[1];
-  const den = dx1*dy2 - dy1*dx2;
-  if (Math.abs(den) < 1e-14) return null;
-  const t = ((c[0]-a[0])*dy2 - (c[1]-a[1])*dx2) / den;
-  const u = ((c[0]-a[0])*dy1 - (c[1]-a[1])*dx1) / den;
-  if (t > 1e-10 && t < 1-1e-10 && u > 1e-10 && u < 1-1e-10)
-    return [a[0]+t*dx1, a[1]+t*dy1];
-  return null;
-}
-
-/// ===============================
-// TOPOLOGY + BUFFER CORE (FIXED)
-// ===============================
-
-// --- segment intersection ---
-function _intersectSeg(a, b, c, d) {
-  const den = (a[0]-b[0])*(c[1]-d[1]) - (a[1]-b[1])*(c[0]-d[0]);
-  if (Math.abs(den) < 1e-12) return null;
-
-  const t = ((a[0]-c[0])*(c[1]-d[1]) - (a[1]-c[1])*(c[0]-d[0])) / den;
-  const u = ((a[0]-c[0])*(a[1]-b[1]) - (a[1]-c[1])*(a[0]-b[0])) / den;
-
-  if (t > 0 && t < 1 && u > 0 && u < 1) {
-    return [a[0] + t*(b[0]-a[0]), a[1] + t*(b[1]-a[1])];
-  }
-  return null;
-}
-
-// --- node segments (split at intersections) ---
-function _nodeSegments(coords) {
-  const segs = [];
-  for (let i = 0; i < coords.length - 1; i++) {
-    segs.push([coords[i], coords[i+1]]);
-  }
-
-  const splits = Array(segs.length).fill(0).map(()=>[]);
-
-  for (let i = 0; i < segs.length; i++) {
-    for (let j = i+1; j < segs.length; j++) {
-      const p = _intersectSeg(segs[i][0], segs[i][1], segs[j][0], segs[j][1]);
-      if (p) {
-        splits[i].push(p);
-        splits[j].push(p);
-      }
-    }
-  }
-
-  const out = [];
-  for (let i = 0; i < segs.length; i++) {
-    const base = segs[i][0];
-    const pts = [base, ...splits[i], segs[i][1]];
-
-    pts.sort((a,b)=>
-      Math.hypot(a[0]-base[0], a[1]-base[1]) -
-      Math.hypot(b[0]-base[0], b[1]-base[1])
-    );
-
-    for (let k = 0; k < pts.length-1; k++) {
-      out.push([pts[k], pts[k+1]]);
-    }
-  }
-
-  return out;
-}
-
-// --- polygonize graph into rings ---
-function _polygonize(segs) {
-  const adj = new Map();
-  const key = p => p[0].toFixed(9)+','+p[1].toFixed(9);
-
-  for (const [a,b] of segs) {
-    const ka = key(a), kb = key(b);
-    if (!adj.has(ka)) adj.set(ka, []);
-    if (!adj.has(kb)) adj.set(kb, []);
-    adj.get(ka).push(b);
-    adj.get(kb).push(a);
-  }
-
-  const visited = new Set();
-  const rings = [];
-
-  for (const [startKey, neighbors] of adj) {
-    for (const next of neighbors) {
-      const edgeKey = startKey + '>' + key(next);
-      if (visited.has(edgeKey)) continue;
-
-      let ring = [];
-      let curr = startKey.split(',').map(Number);
-      let prev = null;
-
-      while (true) {
-        ring.push(curr);
-        const nbrs = adj.get(key(curr));
-
-        let nextPt = null;
-        for (const n of nbrs) {
-          if (!prev || n[0] !== prev[0] || n[1] !== prev[1]) {
-            nextPt = n;
-            break;
-          }
-        }
-
-        if (!nextPt) break;
-
-        visited.add(key(curr) + '>' + key(nextPt));
-        prev = curr;
-        curr = nextPt;
-
-        if (key(curr) === startKey) break;
-      }
-
-      if (ring.length > 3) rings.push(ring);
-    }
-  }
-
-  return rings;
-}
-
-// --- clean buffer ring (ArcGIS-style) ---
-function _cleanBufferRing(coords) {
-  const segs = _nodeSegments(coords);
-  const rings = _polygonize(segs);
-  if (!rings.length) return null;
-
-  let best = null, bestArea = -Infinity;
-
-  for (const r of rings) {
-    let area = 0;
-    for (let i=0;i<r.length;i++){
-      const a=r[i], b=r[(i+1)%r.length];
-      area += a[0]*b[1] - b[0]*a[1];
-    }
-    if (area > bestArea) {
-      bestArea = area;
-      best = r;
-    }
-  }
-
-  if (!best) return null;
-  best.push([...best[0]]);
-  return best;
-}
-
-// override old loop remover
-function _removePolyLoops(coords) {
-  return _cleanBufferRing(coords);
-}
-
-//
-//
-//
-
 // ── Buffer line → polygon ring ──
 function _bufferLineRing(coords, radiusM) {
   if (!coords || coords.length < 2) return null;
@@ -438,15 +283,6 @@ function _cleanBufferRing(coords) {
   return best;
 }
 
-// ==========================================
-// ORIGINAL FUNCTIONS (names unchanged)
-// ==========================================
-
-function _removePolyLoops(coords) {
-  // replaced internally with full topology cleanup
-  return _cleanBufferRing(coords);
-}
-
 // ── Rounded polygon ring buffer ──
 function _bufferPolygonRing(ring, radiusM) {
   if (!ring || ring.length < 3) return ring;
@@ -520,7 +356,7 @@ for (let s = 0; s <= steps; s++) {
 }
   }
 
-  const cleaned = _removePolyLoops(result);
+  const cleaned = _cleanBufferRing(result);
   if (!cleaned || cleaned.length < 3) return ring;
 
   cleaned.push([...cleaned[0]]);
@@ -766,7 +602,7 @@ async function runGeoBuffer() {
     const name = (nameEl && nameEl.value.trim()) || 'Buffer';
     addLayer({ type:'FeatureCollection', features:outFeats }, name, 'EPSG:4326', 'Geoprocess');
     resEl.style.display='block'; resEl.textContent=`✔ Created "${name}" (${outFeats.length} feature${outFeats.length!==1?'s':''})`;
-    updateLayerList(); updateExportLayerList(); updateSBLLayerList(); updateDQALayerList();
+    _updateAllLayerLists();
   } catch (e) {
     resEl.style.display='block'; resEl.textContent='Error: ' + e.message;
   } finally {
@@ -793,7 +629,7 @@ async function runGeoIntersection() {
     if (!outFeats.length) { resEl.style.display='block'; resEl.textContent='No intersecting features found.'; return; }
     addLayer({ type:'FeatureCollection', features:outFeats }, name, 'EPSG:4326', 'Geoprocess');
     resEl.style.display='block'; resEl.textContent=`✔ Created "${name}" (${outFeats.length} feature${outFeats.length!==1?'s':''})`;
-    updateLayerList(); updateExportLayerList(); updateSBLLayerList(); updateDQALayerList();
+    _updateAllLayerLists();
   } catch (e) {
     resEl.style.display='block'; resEl.textContent='Error: ' + e.message;
   } finally {
@@ -828,7 +664,7 @@ async function runGeoUnion() {
     const name = (nameEl && nameEl.value.trim()) || 'Union';
     addLayer({ type:'FeatureCollection', features:outFeats }, name, 'EPSG:4326', 'Geoprocess');
     resEl.style.display='block'; resEl.textContent=`✔ "${name}" — ${aFeats.length} + ${bFeats.length} = ${outFeats.length} features`;
-    updateLayerList(); updateExportLayerList(); updateSBLLayerList(); updateDQALayerList();
+    _updateAllLayerLists();
   } catch (e) {
     resEl.style.display='block'; resEl.textContent='Error: ' + e.message;
   } finally {
@@ -855,7 +691,7 @@ async function runGeoDissolve() {
     const name = (nameEl && nameEl.value.trim()) || 'Dissolve';
     addLayer({ type:'FeatureCollection', features:outFeats }, name, 'EPSG:4326', 'Geoprocess');
     resEl.style.display='block'; resEl.textContent=`✔ Created "${name}" (${outFeats.length} group${outFeats.length!==1?'s':''})`;
-    updateLayerList(); updateExportLayerList(); updateSBLLayerList(); updateDQALayerList();
+    _updateAllLayerLists();
   } catch (e) {
     resEl.style.display='block'; resEl.textContent='Error: ' + e.message;
   } finally {
@@ -894,7 +730,7 @@ async function runGeoSimplify() {
     const name = (nameEl && nameEl.value.trim()) || 'Simplified';
     addLayer({ type:'FeatureCollection', features:outFeats }, name, 'EPSG:4326', 'Geoprocess');
     resEl.style.display='block'; resEl.textContent=`✔ Created "${name}" (${outFeats.length} features)`;
-    updateLayerList(); updateExportLayerList(); updateSBLLayerList(); updateDQALayerList();
+    _updateAllLayerLists();
   } catch (e) {
     resEl.style.display='block'; resEl.textContent='Error: ' + e.message;
   } finally {
@@ -920,7 +756,7 @@ async function runGeoCentroid() {
     const name = (nameEl && nameEl.value.trim()) || 'Centroids';
     addLayer({ type:'FeatureCollection', features:outFeats }, name, 'EPSG:4326', 'Geoprocess');
     resEl.style.display='block'; resEl.textContent=`✔ Created "${name}" (${outFeats.length} points)`;
-    updateLayerList(); updateExportLayerList(); updateSBLLayerList(); updateDQALayerList();
+    _updateAllLayerLists();
   } catch (e) {
     resEl.style.display='block'; resEl.textContent='Error: ' + e.message;
   } finally {
@@ -953,7 +789,7 @@ async function runGeoBoundingGeometry() {
     const name = (nameEl && nameEl.value.trim()) || defaultName;
     addLayer({ type:'FeatureCollection', features:outFeats }, name, 'EPSG:4326', 'Geoprocess');
     resEl.style.display='block'; resEl.textContent=`✔ Created "${name}" (${outFeats.length} polygon${outFeats.length!==1?'s':''})`;
-    updateLayerList(); updateExportLayerList(); updateSBLLayerList(); updateDQALayerList();
+    _updateAllLayerLists();
   } catch (e) {
     resEl.style.display='block'; resEl.textContent='Error: ' + e.message;
   } finally {
@@ -1006,7 +842,7 @@ async function runGeoClip() {
     const name = (nameEl && nameEl.value.trim()) || 'Clip';
     addLayer({ type: 'FeatureCollection', features: outFeats }, name, 'EPSG:4326', 'Geoprocess');
     resEl.style.display='block'; resEl.textContent=`✔ Created "${name}" (${outFeats.length} feature${outFeats.length!==1?'s':''})`;
-    updateLayerList(); updateExportLayerList(); updateSBLLayerList(); updateDQALayerList();
+    _updateAllLayerLists();
   } catch(e) {
     resEl.style.display='block'; resEl.textContent='Error: ' + e.message;
   } finally {

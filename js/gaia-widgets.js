@@ -119,7 +119,6 @@ function redrawSBLOrMeasure() {
   const shapeFeature = usePolyline ? _drawLineFeature(pts, '#39d353') : _drawPolygonFeature(pts, '#39d353');
   _setDrawFeatures([...(shapeFeature ? [shapeFeature] : []), ...vertexFeats]);
 }
-function redrawMeasure() { redrawSBLOrMeasure(); }
 
 function updateMeasureResult() {
   const el = document.getElementById('measure-result');
@@ -797,7 +796,7 @@ async function runViewshed() {
     state.layers[vi].fillColor    = '#00c864';
     state.layers[vi].outlineColor = '#00c864';
     state.layers[vi].layerOpacity = 0.55;
-    _applySymbologyToLeaflet(state.layers[vi]);
+    _applySymbology(state.layers[vi]);
   }
 
   // ── Add hidden-area layer ───────────────────────────────────────────────
@@ -809,14 +808,11 @@ async function runViewshed() {
     state.layers[hi].fillColor    = '#ff3c3c';
     state.layers[hi].outlineColor = '#ff3c3c';
     state.layers[hi].layerOpacity = 0.45;
-    _applySymbologyToLeaflet(state.layers[hi]);
+    _applySymbology(state.layers[hi]);
   }
 
   // Refresh layer panel
-  updateLayerList();
-  updateExportLayerList();
-  updateSBLLayerList();
-  updateDQALayerList();
+  _updateAllLayerLists();
 
   const visCount   = visResults.filter(v => v).length;
   const visiblePct = ((visCount / visResults.length) * 100).toFixed(1);

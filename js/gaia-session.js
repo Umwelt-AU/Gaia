@@ -4,43 +4,47 @@
 // ══════════════════════════════════════════════════════════
 const SESSION_KEY = 'gaia_v1_session';
 
+function _serializeLayer(layer) {
+  if (layer.isTile) {
+    return {
+      isTile: true,
+      name: layer.name,
+      color: layer.color,
+      visible: layer.visible,
+      format: layer.format || 'Tile',
+      tileUrl: layer.tileUrl || null,
+      tileType: layer.tileType || null,
+      layerOpacity: layer.layerOpacity != null ? layer.layerOpacity : 1,
+    };
+  }
+  return {
+    isTile: false,
+    name: layer.name,
+    color: layer.color,
+    fillColor: layer.fillColor || null,
+    outlineColor: layer.outlineColor || null,
+    noFill: layer.noFill || false,
+    pointShape: layer.pointShape || 'circle',
+    visible: layer.visible,
+    format: layer.format,
+    sourceCRS: layer.sourceCRS,
+    geomType: layer.geomType,
+    editable: layer.editable || false,
+    editGeomType: layer.editGeomType || null,
+    fields: layer.fields,
+    geojson: layer.geojson,
+    layerOpacity: layer.layerOpacity != null ? layer.layerOpacity : 1,
+    labelConfig: layer.labelConfig || null,
+  };
+}
+
 function saveSession() {
   try {
     const sessionData = {
       version: 1,
       activeLayerIndex: state.activeLayerIndex,
       displayCRS: state.displayCRS,
-      layers: state.layers.map(layer => {
-        if (layer.isTile) {
-          // Tile layers: save metadata only
-          return {
-            isTile: true,
-            name: layer.name,
-            color: layer.color,
-            visible: layer.visible,
-            format: layer.format || 'Tile',
-            tileUrl: layer.tileUrl || null,
-            tileType: layer.tileType || null,
-            layerOpacity: layer.layerOpacity != null ? layer.layerOpacity : 1,
-          };
-        }
-        // Vector layers: save GeoJSON + metadata
-        return {
-          isTile: false,
-          name: layer.name,
-          color: layer.color,
-          visible: layer.visible,
-          format: layer.format,
-          sourceCRS: layer.sourceCRS,
-          geomType: layer.geomType,
-          editable: layer.editable || false,
-          editGeomType: layer.editGeomType || null,
-          fields: layer.fields,
-          geojson: layer.geojson,
-          layerOpacity: layer.layerOpacity != null ? layer.layerOpacity : 1,
-          labelConfig: layer.labelConfig || null,
-        };
-      }),
+      layers: state.layers.map(_serializeLayer),
     };
     localStorage.setItem(SESSION_KEY, JSON.stringify(sessionData));
   } catch(e) {
@@ -95,23 +99,7 @@ function _buildSessionPayload() {
     basemap: document.getElementById('basemap-select')?.value || 'light',
     activeLayerIndex: state.activeLayerIndex,
     displayCRS: state.displayCRS,
-    layers: state.layers.map(layer => {
-      if (layer.isTile) {
-        return { isTile: true, name: layer.name, color: layer.color, visible: layer.visible,
-                 format: layer.format || 'Tile', tileUrl: layer.tileUrl || null,
-                 tileType: layer.tileType || null,
-                 layerOpacity: layer.layerOpacity != null ? layer.layerOpacity : 1 };
-      }
-      return { isTile: false, name: layer.name, color: layer.color,
-               fillColor: layer.fillColor || null, outlineColor: layer.outlineColor || null,
-               noFill: layer.noFill || false, pointShape: layer.pointShape || 'circle',
-               visible: layer.visible, format: layer.format, sourceCRS: layer.sourceCRS,
-               geomType: layer.geomType, editable: layer.editable || false,
-               editGeomType: layer.editGeomType || null, fields: layer.fields,
-               geojson: layer.geojson,
-               layerOpacity: layer.layerOpacity != null ? layer.layerOpacity : 1,
-               labelConfig: layer.labelConfig || null };
-    }),
+    layers: state.layers.map(_serializeLayer),
   };
 }
 
@@ -209,21 +197,7 @@ function doExportSession() {
       exportedAt: new Date().toISOString(),
       activeLayerIndex: state.activeLayerIndex,
       displayCRS: state.displayCRS,
-      layers: state.layers.map(layer => {
-        if (layer.isTile) {
-          return { isTile: true, name: layer.name, color: layer.color, visible: layer.visible,
-                   format: layer.format || 'Tile', tileUrl: layer.tileUrl || null, tileType: layer.tileType || null,
-                   layerOpacity: layer.layerOpacity != null ? layer.layerOpacity : 1 };
-        }
-        return { isTile: false, name: layer.name, color: layer.color, fillColor: layer.fillColor || null,
-                 outlineColor: layer.outlineColor || null, noFill: layer.noFill || false,
-                 pointShape: layer.pointShape || 'circle',
-                 visible: layer.visible, format: layer.format, sourceCRS: layer.sourceCRS,
-                 geomType: layer.geomType, editable: layer.editable || false,
-                 editGeomType: layer.editGeomType || null, fields: layer.fields, geojson: layer.geojson,
-                 layerOpacity: layer.layerOpacity != null ? layer.layerOpacity : 1,
-                 labelConfig: layer.labelConfig || null };
-      }),
+      layers: state.layers.map(_serializeLayer),
     };
     const json = JSON.stringify(sessionData);
     const blob = new Blob([json], { type: 'application/json' });
@@ -246,8 +220,6 @@ function doExportSession() {
     toast('Export failed: ' + err.message, 'error');
   }
 }
-
-function manualSaveSession() { doSaveLocally(); }
 
 function loadSession() {
   try {
@@ -316,7 +288,7 @@ function loadSession() {
       setTimeout(() => _fitLayerBounds(state.layers[ai], { padding: CONSTANTS.MAP_FIT_PADDING_WIDE }), 500);
     }
 
-    updateLayerList(); updateExportLayerList(); updateSBLLayerList(); updateDQALayerList(); updateCreateLayerList();
+    _updateAllLayerLists(); updateCreateLayerList();
     setTimeout(refreshLayerZOrder, 150);
     toast('Session restored (' + state.layers.length + ' layer' + (state.layers.length!==1?'s':'') + ')', 'success');
     return true;
@@ -338,9 +310,7 @@ function clearSession() {
   state.selectedFeatureIndices = new Set();
   state.selectedFeatureIndex = -1;
   state.columnOrder = null;
-  updateLayerList();
-  updateExportLayerList();
-  updateSBLLayerList(); updateDQALayerList();
+  _updateAllLayerLists();
   updateAttrLayerSelect();
   document.getElementById('attr-strip-table-wrap').innerHTML = '<div class="empty-state">Select a layer to view attributes</div>';
   document.getElementById('table-count').textContent = '';

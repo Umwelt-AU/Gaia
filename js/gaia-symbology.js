@@ -143,7 +143,7 @@ function applyFillColor(color) {
   document.getElementById('fill-color-custom').value = color;
   document.getElementById('no-fill-btn').style.background = '#edf0f3';
   document.getElementById('no-fill-btn').style.color = '';
-  _applySymbologyToLeaflet(layer);
+  _applySymbology(layer);
   _updateColorPreview(color, layer.outlineColor || layer.color, false);
   updateLayerList();
   updateLegend();
@@ -153,7 +153,7 @@ function applyOutlineColor(color) {
   const layer = state.layers[_colorPickerLayerIdx]; if (!layer) return;
   layer.outlineColor = color;
   document.getElementById('outline-color-custom').value = color;
-  _applySymbologyToLeaflet(layer);
+  _applySymbology(layer);
   _updateColorPreview(layer.fillColor || layer.color, color, layer.noFill || false);
   updateLayerList();
   updateLegend();
@@ -165,7 +165,7 @@ function applyNoFill() {
   const btn = document.getElementById('no-fill-btn');
   btn.style.background = layer.noFill ? '#0074a8' : '#edf0f3';
   btn.style.color = layer.noFill ? '#fff' : '';
-  _applySymbologyToLeaflet(layer);
+  _applySymbology(layer);
   _updateColorPreview(layer.fillColor || layer.color, layer.outlineColor || layer.color, layer.noFill);
   updateLayerList();
   updateLegend();
@@ -181,7 +181,7 @@ function applyPointShape(shape) {
       btn.style.background  = s === shape ? '#e3f3fc' : '#edf0f3';
     }
   });
-  _applySymbologyToLeaflet(layer);
+  _applySymbology(layer);
   updateLayerList();
   updateLegend();
 }
@@ -189,7 +189,7 @@ function applyPointShape(shape) {
 function applyPointSize(size) {
   const layer = state.layers[_colorPickerLayerIdx]; if (!layer) return;
   layer.pointSize = size;
-  _applySymbologyToLeaflet(layer);
+  _applySymbology(layer);
   updateLayerList();
   updateLegend();
 }
@@ -197,12 +197,12 @@ function applyPointSize(size) {
 function applyOutlineWidth(width) {
   const layer = state.layers[_colorPickerLayerIdx]; if (!layer) return;
   layer.outlineWidth = width;
-  _applySymbologyToLeaflet(layer);
+  _applySymbology(layer);
   updateLayerList();
   updateLegend();
 }
 
-function _applySymbologyToLeaflet(layer) {
+function _applySymbology(layer) {
   const idx = state.layers.indexOf(layer);
   if (idx >= 0) _renderMapLayer(layer, idx);
 }
@@ -215,7 +215,7 @@ function applyLayerColor(color) {
   layer.fillColor = color;
   layer.outlineColor = color;
   layer.noFill = false;
-  _applySymbologyToLeaflet(layer);
+  _applySymbology(layer);
   updateLayerList();
   toast('Layer colour updated', 'success');
 }

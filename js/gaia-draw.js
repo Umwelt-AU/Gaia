@@ -405,46 +405,6 @@ function circleToPolygon(centreLL, radiusM) {
   return pts;
 }
 
-// Simple flat-earth offset for a LatLng
-function offsetLatLng(ll, dxM, dyM) {
-  return L.latLng(
-    ll.lat + dyM / 111320,
-    ll.lng + dxM / (111320 * Math.cos(ll.lat * Math.PI / 180))
-  );
-}
-
-// Buffer a LineString or Polygon ring by radiusM (approximate, per-segment offset quads)
-function bufferSegments(coords2d, radiusM, closed) {
-  // Create an approximate buffer by adding circles at each vertex
-  // and rectangles along each segment
-  const circles = coords2d.map(c => circleToPolygon({lat:c[1], lng:c[0]}, radiusM));
-  // Union = just return the convex hull of all buffer circles (simplified)
-  // For a proper buffer we merge all vertex circles' coordinates
-  const allPts = circles.flat();
-  return convexHull(allPts.map(c => [c[0], c[1]]));
-}
-
-// Graham scan convex hull on [lng, lat] points
-function convexHull(points) {
-  if (points.length < 3) return points;
-  const sorted = [...points].sort((a,b) => a[0]-b[0] || a[1]-b[1]);
-  function cross(o,a,b) { return (a[0]-o[0])*(b[1]-o[1]) - (a[1]-o[1])*(b[0]-o[0]); }
-  const lower = [], upper = [];
-  for (const p of sorted) {
-    while (lower.length >= 2 && cross(lower[lower.length-2], lower[lower.length-1], p) <= 0) lower.pop();
-    lower.push(p);
-  }
-  for (let i = sorted.length-1; i >= 0; i--) {
-    const p = sorted[i];
-    while (upper.length >= 2 && cross(upper[upper.length-2], upper[upper.length-1], p) <= 0) upper.pop();
-    upper.push(p);
-  }
-  upper.pop(); lower.pop();
-  const hull = [...lower, ...upper];
-  hull.push(hull[0]); // close
-  return hull;
-}
-
 function bufferFeature(feat, radiusM) {
   if (!feat.geometry) return null;
   const type = feat.geometry.type;
@@ -456,19 +416,19 @@ function bufferFeature(feat, radiusM) {
     hullCoords = circleToPolygon(ptLL(coords), radiusM);
   } else if (type === 'MultiPoint') {
     const allPts = coords.flatMap(c => circleToPolygon(ptLL(c), radiusM));
-    hullCoords = convexHull(allPts);
+    hullCoords = _convexHull(allPts);
   } else if (type === 'LineString') {
     const allCirclePts = coords.flatMap(c => circleToPolygon(ptLL(c), radiusM));
-    hullCoords = convexHull(allCirclePts);
+    hullCoords = _convexHull(allCirclePts);
   } else if (type === 'MultiLineString') {
     const allPts = coords.flat().flatMap(c => circleToPolygon(ptLL(c), radiusM));
-    hullCoords = convexHull(allPts);
+    hullCoords = _convexHull(allPts);
   } else if (type === 'Polygon') {
     const allPts = coords[0].flatMap(c => circleToPolygon(ptLL(c), radiusM));
-    hullCoords = convexHull(allPts);
+    hullCoords = _convexHull(allPts);
   } else if (type === 'MultiPolygon') {
     const allPts = coords.flatMap(poly => poly[0]).flatMap(c => circleToPolygon(ptLL(c), radiusM));
-    hullCoords = convexHull(allPts);
+    hullCoords = _convexHull(allPts);
   } else {
     return null;
   }

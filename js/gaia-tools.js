@@ -3,7 +3,6 @@
 // FIELD CALCULATOR
 // ══════════════════════════════════════════════════
 function openFieldCalcPanel() { _openFieldCalc(state.activeLayerIndex); }
-function openFieldCalcFromTable() { _openFieldCalc(state.activeLayerIndex); }
 
 function _openFieldCalc(defaultIdx) {
   const bd = document.getElementById('fieldcalc-backdrop');

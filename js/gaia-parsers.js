@@ -83,7 +83,6 @@ async function loadGAIASession(file) {
         if (l.editGeomType) newLayer.editGeomType = l.editGeomType;
         if (l.visible === false) { newLayer.visible = false; }
         if (l.layerOpacity != null) { newLayer.layerOpacity = l.layerOpacity; }
-        _applySymbologyToLeaflet(newLayer);
         if (l.labelConfig) { newLayer.labelConfig = l.labelConfig; }
       }
       loaded++;

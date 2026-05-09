@@ -397,7 +397,6 @@ function renderTable() {
 
   wrap.onscroll = () => _vtRenderWindow(false);
   _vtRenderWindow(true);
-  _initColResizeHandles();
   if (spinner) spinner.style.display = 'none';
 }
 
@@ -477,10 +476,6 @@ function _colResizeEnd() {
   if (_colResizeState.handle) _colResizeState.handle.classList.remove('resizing');
   document.removeEventListener('mousemove', _colResizeMove);
   _colResizeState = null;
-}
-
-function _initColResizeHandles() {
-  // Nothing extra needed — handles are wired inline via onmousedown in the HTML
 }
 
 // ── CELL EXPAND ON DOUBLE-CLICK ────────────────────

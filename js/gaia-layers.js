@@ -8,6 +8,13 @@ const _DRAW_LAYERS = ['draw-fill','draw-line','draw-circle','draw-preview-fill',
 
 function _layerMapId(idx) { return 'gaia-layer-' + idx; }
 
+function _updateAllLayerLists() {
+  updateLayerList();
+  updateExportLayerList();
+  updateSBLLayerList();
+  updateDQALayerList();
+}
+
 // Insert a MapLibre layer BELOW the draw layers (so draw remains on top)
 function _addMapLayer(layerDef) {
   const firstDraw = _DRAW_LAYERS.find(id => { try { return !!state.map.getLayer(id); } catch(_) { return false; } });
@@ -341,7 +348,7 @@ function addLayer(geojson, name, sourceCRS, format) {
   };
   waitAndRender();
 
-  updateLayerList(); updateExportLayerList(); updateSBLLayerList(); updateDQALayerList();
+  _updateAllLayerLists();
   setActiveLayer(idx);
   _updateEmptyState();
 }
@@ -760,7 +767,7 @@ function handleLayerDrop(e, targetLayerIdx) {
       else if (srcIdx > state.activeLayerIndex && insertAt <= state.activeLayerIndex) state.activeLayerIndex++;
     }
     refreshLayerZOrder();
-    updateLayerList(); updateExportLayerList(); updateSBLLayerList(); updateDQALayerList();
+    _updateAllLayerLists();
 
   } else if (_drag.kind === 'group') {
     // Group dropped onto an ungrouped layer item.

@@ -106,7 +106,7 @@ function ctxRenameLayer() {
   const newName = prompt('Rename layer:', layer.name);
   if (newName && newName.trim() && newName.trim() !== layer.name) {
     layer.name = newName.trim();
-    updateLayerList(); updateExportLayerList(); updateAttrLayerSelect(); updateSBLLayerList(); updateDQALayerList();
+    _updateAllLayerLists(); updateAttrLayerSelect();
     toast('Layer renamed to "' + layer.name + '"', 'success');
   }
 }
@@ -410,14 +410,12 @@ const _origOnSBLGeomTypeChange = window.onSBLGeomTypeChange || function(){};
 window.onSBLGeomTypeChange = function() {
   const geomType = document.getElementById('sbl-geom-type').value;
   const radiusRow = document.getElementById('sbl-radius-row');
-  const distSrcRow = null; // removed
   const selectedRow = document.getElementById('sbl-selected-source-row');
   const spatialRow = document.getElementById('sbl-spatial-rel-row');
   const drawBtn = document.getElementById('sbl-draw-btn');
   const radiusLabel = document.getElementById('sbl-radius-label');
 
   radiusRow.style.display = (geomType === 'point' || geomType === 'distance') ? 'block' : 'none';
-  if (distSrcRow) distSrcRow.style.display = geomType === 'distance' ? 'block' : 'none';
   selectedRow.style.display = geomType === 'selected' ? 'block' : 'none';
   spatialRow.style.display = (geomType === 'selected' || geomType === 'distance') ? 'none' : 'block';
 
