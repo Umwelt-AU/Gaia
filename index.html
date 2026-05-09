@@ -401,7 +401,7 @@
 
 <div id="body">
 
-  <!-- LEFT PANEL -->
+  <!-- LEFT PANEL — dock-zone-left and dock-slot-dock-0 are created by gaia-dock.js -->
   <div id="left-panel">
     <div class="panel-resize-handle" id="left-resize-handle" title="Drag to resize panel"></div>
     <div class="panel-section">
@@ -621,7 +621,8 @@
     </div>
   </div>
 
-  <!-- RIGHT PANEL -->
+  <!-- RIGHT PANEL — starts directly in #body; dock-slot-right is created
+       dynamically by gaia-dock.js the first time a panel is dropped here -->
   <div id="right-panel">
     <div class="panel-resize-handle" id="right-resize-handle" title="Drag to resize panel"></div>
     <!-- Panel Action Buttons -->
@@ -1871,6 +1872,7 @@
 <script src="js/gaia-symbology.js"></script>
 <script src="js/gaia-export-map.js"></script>
 <script src="js/gaia-tools.js"></script>
+<script src="js/gaia-dock.js"></script>
 <script src="js/agol.js?v=3ec5269a"></script>
 <script>
 // Apply version string from GAIA_CONFIG to all version labels and page title

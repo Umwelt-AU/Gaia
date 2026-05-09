@@ -339,6 +339,8 @@ state.map.on('load', () => {
   // Resizable attr strip + panels
   initAttrResize();
   initPanelResize();
+  // Dock system — adds drag grips and builds drop zone overlay
+  if (typeof dockInit === 'function') dockInit();
 });
 
 // ── DRAW SOURCE HELPERS (for widget tools: measure, SBL, create, viewshed, elevation) ──
@@ -422,34 +424,45 @@ function initAttrResize() {
 
 // ── RESIZABLE LEFT / RIGHT PANELS ──
 function initPanelResize() {
+  // Resize the dock zone container. Panels inside use width:100% (CSS) so they
+  // always fill the container — no grey gap and the handle stays at the edge.
   function makeResizer(handleId, panelId, edge) {
     const handle = document.getElementById(handleId);
-    const panel  = document.getElementById(panelId);
-    if (!handle || !panel) return;
-    let dragging = false, startX, startW;
+    if (!handle) return;
+    let dragging = false, startX, startW, target;
+
     handle.addEventListener('mousedown', e => {
-      dragging = true; startX = e.clientX; startW = panel.offsetWidth;
+      const panel = document.getElementById(panelId);
+      if (!panel) return;
+      // Resolve target once at drag-start (panel may be in any zone)
+      const dock   = typeof _dockForPanel === 'function' ? _dockForPanel(panelId) : null;
+      const zoneEl = dock ? document.getElementById('dock-zone-' + dock.zone) : null;
+      target   = zoneEl || panel;
+      dragging = true;
+      startX   = e.clientX;
+      startW   = target.offsetWidth;
       handle.classList.add('dragging');
       document.body.style.cursor = 'ew-resize';
       e.preventDefault();
     });
+
     document.addEventListener('mousemove', e => {
-      if (!dragging) return;
-      const delta = edge === 'right'
-        ? e.clientX - startX   // left panel: drag right edge → widen
-        : startX - e.clientX;  // right panel: drag left edge → widen
-      const newW = Math.max(200, Math.min(520, startW + delta));
-      panel.style.width = newW + 'px';
+      if (!dragging || !target) return;
+      const delta = edge === 'right' ? e.clientX - startX : startX - e.clientX;
+      const newW  = Math.max(200, Math.min(520, startW + delta));
+      target.style.width = newW + 'px';
     });
+
     document.addEventListener('mouseup', () => {
       if (!dragging) return;
       dragging = false;
+      target   = null;
       handle.classList.remove('dragging');
       document.body.style.cursor = '';
-      // Trigger Leaflet resize so map fills remaining space
       if (state.map) setTimeout(() => state.map.resize(), 50);
     });
   }
+
   makeResizer('left-resize-handle',  'left-panel',  'right');
   makeResizer('right-resize-handle', 'right-panel', 'left');
 }
