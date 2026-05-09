@@ -563,15 +563,20 @@ function _rebuildMapLayer(layerIdx) {
 
 // Keyboard shortcut: Ctrl+Z = undo, Ctrl+Y / Ctrl+Shift+Z = redo
 document.addEventListener('keydown', function(e) {
-  // Only act when create panel is open (avoid intercepting normal typing)
-  const createPanel = document.getElementById('create-float');
-  if (!createPanel || !createPanel.classList.contains('visible')) return;
   // Don't intercept if focus is inside an input/textarea
   const tag = document.activeElement && document.activeElement.tagName;
   if (tag === 'INPUT' || tag === 'TEXTAREA' || tag === 'SELECT') return;
 
-  if ((e.ctrlKey || e.metaKey) && !e.shiftKey && e.key === 'z') { e.preventDefault(); createUndo(); }
-  if ((e.ctrlKey || e.metaKey) && (e.key === 'y' || (e.shiftKey && e.key === 'z'))) { e.preventDefault(); createRedo(); }
+  // When Create Features panel is open → feature-level undo/redo
+  const createPanel = document.getElementById('create-float');
+  if (createPanel && createPanel.classList.contains('visible')) {
+    if ((e.ctrlKey || e.metaKey) && !e.shiftKey && e.key === 'z') { e.preventDefault(); createUndo(); return; }
+    if ((e.ctrlKey || e.metaKey) && (e.key === 'y' || (e.shiftKey && e.key === 'z'))) { e.preventDefault(); createRedo(); return; }
+  }
+
+  // Global layer undo / redo (Ctrl+Z / Ctrl+Y)
+  if ((e.ctrlKey || e.metaKey) && !e.shiftKey && e.key === 'z') { e.preventDefault(); undoLayerOp(); }
+  if ((e.ctrlKey || e.metaKey) && (e.key === 'y' || (e.shiftKey && e.key === 'z'))) { e.preventDefault(); redoLayerOp(); }
 });
 
 
@@ -1056,6 +1061,20 @@ function exportData() {
     catch(e) { toast(`CRS transform error: ${e.message}`, 'error'); return; }
   }
 
+  // Shapefile is async (ZIP generation) — handle separately before sync formats
+  if (selectedExportFormat === 'shapefile') {
+    geojsonToShapefile(gj, layer.name, exportCRS).then(blob => {
+      const url2 = URL.createObjectURL(blob);
+      const a2 = document.createElement('a'); a2.href = url2; a2.download = layer.name + '.zip'; a2.click();
+      URL.revokeObjectURL(url2);
+      const fc = gj.features ? gj.features.length : '?';
+      const cn = exportCRS !== 'EPSG:4326' ? ` [${exportCRS}]` : '';
+      const sn = exportScope === 'selected' ? ` (${fc} selected)` : ` (${fc} features)`;
+      toast('Exported: ' + layer.name + '.zip' + sn + cn, 'success');
+    }).catch(e => toast('Shapefile export error: ' + e.message, 'error'));
+    return;
+  }
+
   let blob, filename;
   switch (selectedExportFormat) {
     case 'geojson':
@@ -1077,6 +1096,7 @@ function exportData() {
   }
 
   const url = URL.createObjectURL(blob);
+
   const a = document.createElement('a'); a.href = url; a.download = filename; a.click();
   URL.revokeObjectURL(url);
 
@@ -1084,4 +1104,218 @@ function exportData() {
   const crsNote = exportCRS !== 'EPSG:4326' ? ` [${exportCRS}]` : '';
   const scopeNote = exportScope === 'selected' ? ` (${featCount} selected)` : ` (${featCount} features)`;
   toast('Exported: ' + filename + scopeNote + crsNote, 'success');
+}
+
+// ══════════════════════════════════════════════════
+//  SHAPEFILE EXPORT
+//  Produces a .zip containing .shp / .shx / .dbf / .prj
+//  Requires JSZip (already loaded via CDN).
+// ══════════════════════════════════════════════════
+function geojsonToShapefile(gj, layerName, exportCRS) {
+  const feats = (gj.features || []).filter(f => f.geometry);
+  if (!feats.length) return Promise.reject(new Error('No features with geometry'));
+
+  // ── determine SHP type from first geometry ──────────────────────────────
+  function _shpTypeFor(geomType) {
+    if (geomType.includes('Point'))   return 1;   // Point
+    if (geomType.includes('Line'))    return 3;   // PolyLine
+    return 5;                                     // Polygon
+  }
+  const shpType = _shpTypeFor(feats[0].geometry.type);
+
+  // ── flatten a GeoJSON geometry into an array of coordinate rings/parts ──
+  function _toParts(geom) {
+    const t = geom.type;
+    if (t === 'Point')           return [[geom.coordinates]];
+    if (t === 'MultiPoint')      return geom.coordinates.map(c => [c]);
+    if (t === 'LineString')      return [geom.coordinates];
+    if (t === 'MultiLineString') return geom.coordinates;
+    if (t === 'Polygon')         return geom.coordinates;          // rings (outer + holes)
+    if (t === 'MultiPolygon')    return geom.coordinates.flat(1);  // all rings
+    return [];
+  }
+
+  // ── compute per-feature SHP record payloads ─────────────────────────────
+  const records = feats.map(f => {
+    const geom = f.geometry;
+    if (shpType === 1) {
+      // Point — single X/Y regardless of Multi
+      const pt = geom.type === 'Point' ? geom.coordinates : (geom.coordinates[0] || [0, 0]);
+      return { contentLen: 20, pt };            // 4 (type) + 8 (X) + 8 (Y) = 20
+    }
+    const parts    = _toParts(geom);
+    const numParts = parts.length;
+    const numPts   = parts.reduce((s, p) => s + p.length, 0);
+    // 4 (type) + 32 (bbox) + 4 (numParts) + 4 (numPoints) + 4*numParts + 16*numPoints
+    const contentLen = 4 + 32 + 4 + 4 + 4 * numParts + 16 * numPts;
+    return { contentLen, parts, numParts, numPts };
+  });
+
+  // ── global bbox ──────────────────────────────────────────────────────────
+  let minX = Infinity, minY = Infinity, maxX = -Infinity, maxY = -Infinity;
+  feats.forEach(f => {
+    function sc(c) {
+      if (!Array.isArray(c)) return;
+      if (typeof c[0] === 'number') {
+        if (c[0] < minX) minX = c[0]; if (c[0] > maxX) maxX = c[0];
+        if (c[1] < minY) minY = c[1]; if (c[1] > maxY) maxY = c[1];
+      } else c.forEach(sc);
+    }
+    if (f.geometry) sc(f.geometry.coordinates);
+  });
+  if (!isFinite(minX)) { minX = 0; minY = 0; maxX = 0; maxY = 0; }
+
+  // ── allocate SHP + SHX buffers ───────────────────────────────────────────
+  const FILE_HDR = 100;
+  const REC_HDR  = 8;
+  const shpSize  = FILE_HDR + records.reduce((s, r) => s + REC_HDR + r.contentLen, 0);
+  const shxSize  = FILE_HDR + feats.length * 8;
+  const shpBuf   = new ArrayBuffer(shpSize);
+  const shxBuf   = new ArrayBuffer(shxSize);
+  const sv       = new DataView(shpBuf);
+  const xv       = new DataView(shxBuf);
+
+  function _writeFileHeader(dv, fileLen) {
+    dv.setInt32(0,  9994, false);           // file code (BE)
+    dv.setInt32(24, fileLen / 2, false);    // file length in 16-bit words (BE)
+    dv.setInt32(28, 1000, true);            // version (LE)
+    dv.setInt32(32, shpType, true);         // shape type (LE)
+    dv.setFloat64(36, minX, true);          // Xmin
+    dv.setFloat64(44, minY, true);          // Ymin
+    dv.setFloat64(52, maxX, true);          // Xmax
+    dv.setFloat64(60, maxY, true);          // Ymax
+    // Zmin/Zmax/Mmin/Mmax remain 0 (ArrayBuffer default)
+  }
+  _writeFileHeader(sv, shpSize);
+  _writeFileHeader(xv, shxSize);
+
+  let shpOff = FILE_HDR, shxOff = FILE_HDR;
+
+  records.forEach((rec, i) => {
+    // SHX record: offset + content-length in 16-bit words (both BE)
+    xv.setInt32(shxOff,     shpOff / 2,       false);
+    xv.setInt32(shxOff + 4, rec.contentLen / 2, false);
+    shxOff += 8;
+
+    // SHP record header: record number (1-based, BE) + content length (BE)
+    sv.setInt32(shpOff,     i + 1,            false);
+    sv.setInt32(shpOff + 4, rec.contentLen / 2, false);
+    shpOff += 8;
+
+    if (shpType === 1) {
+      sv.setInt32(shpOff,     1,          true); shpOff += 4;
+      sv.setFloat64(shpOff,   rec.pt[0],  true); shpOff += 8;
+      sv.setFloat64(shpOff,   rec.pt[1],  true); shpOff += 8;
+    } else {
+      sv.setInt32(shpOff, shpType, true); shpOff += 4;
+      // per-record bbox
+      let rx1=Infinity, ry1=Infinity, rx2=-Infinity, ry2=-Infinity;
+      rec.parts.forEach(ring => ring.forEach(([x,y]) => {
+        if(x<rx1)rx1=x; if(x>rx2)rx2=x; if(y<ry1)ry1=y; if(y>ry2)ry2=y;
+      }));
+      sv.setFloat64(shpOff, rx1, true); shpOff += 8;
+      sv.setFloat64(shpOff, ry1, true); shpOff += 8;
+      sv.setFloat64(shpOff, rx2, true); shpOff += 8;
+      sv.setFloat64(shpOff, ry2, true); shpOff += 8;
+      sv.setInt32(shpOff, rec.numParts, true); shpOff += 4;
+      sv.setInt32(shpOff, rec.numPts,   true); shpOff += 4;
+      // parts array (start indices of each ring/part)
+      let ptIdx = 0;
+      rec.parts.forEach(part => {
+        sv.setInt32(shpOff, ptIdx, true); shpOff += 4;
+        ptIdx += part.length;
+      });
+      // coordinate pairs
+      rec.parts.forEach(part => {
+        part.forEach(([x, y]) => {
+          sv.setFloat64(shpOff, x, true); shpOff += 8;
+          sv.setFloat64(shpOff, y, true); shpOff += 8;
+        });
+      });
+    }
+  });
+
+  // ── DBF ─────────────────────────────────────────────────────────────────
+  // Collect all field names, compute type + max length
+  const allFieldNames = [...new Set(feats.flatMap(f => Object.keys(f.properties || {})))];
+  const dbfFields = allFieldNames.map(name => {
+    // Sanitise to 10-char alphanumeric+underscore name
+    const dbfName = name.replace(/[^A-Za-z0-9_]/g, '_').substring(0, 10) || ('F' + allFieldNames.indexOf(name));
+    let maxLen = 1;
+    feats.forEach(f => {
+      const v = (f.properties || {})[name];
+      if (v !== null && v !== undefined) maxLen = Math.max(maxLen, String(v).length);
+    });
+    return { dbfName, origName: name, length: Math.min(maxLen, 254) };
+  });
+
+  const recSize  = 1 + dbfFields.reduce((s, f) => s + f.length, 0); // 1 = deletion flag
+  const hdrSize  = 32 + dbfFields.length * 32 + 1;                  // +1 = 0x0D terminator
+  const dbfSize  = hdrSize + feats.length * recSize;
+  const dbfBuf   = new ArrayBuffer(dbfSize);
+  const dv       = new DataView(dbfBuf);
+  const du8      = new Uint8Array(dbfBuf);
+
+  // DBF file header
+  dv.setUint8(0, 0x03);
+  const now = new Date();
+  dv.setUint8(1, now.getFullYear() - 1900);
+  dv.setUint8(2, now.getMonth() + 1);
+  dv.setUint8(3, now.getDate());
+  dv.setInt32(4,  feats.length, true);
+  dv.setInt16(8,  hdrSize,      true);
+  dv.setInt16(10, recSize,      true);
+
+  // Field descriptor array
+  let fOff = 32;
+  dbfFields.forEach(f => {
+    for (let i = 0; i < 11; i++)
+      dv.setUint8(fOff + i, i < f.dbfName.length ? f.dbfName.charCodeAt(i) : 0);
+    dv.setUint8(fOff + 11, 0x43); // 'C' — character field for simplicity
+    dv.setUint8(fOff + 16, f.length);
+    fOff += 32;
+  });
+  dv.setUint8(fOff, 0x0D); // field terminator
+
+  // Records
+  let rOff = hdrSize;
+  feats.forEach(f => {
+    du8[rOff++] = 0x20; // not-deleted flag
+    dbfFields.forEach(field => {
+      const v = (f.properties || {})[field.origName];
+      const s = (v === null || v === undefined) ? '' : String(v);
+      for (let i = 0; i < field.length; i++)
+        du8[rOff + i] = i < s.length ? (s.charCodeAt(i) & 0xFF) : 0x20;
+      rOff += field.length;
+    });
+  });
+
+  // ── PRJ ─────────────────────────────────────────────────────────────────
+  const prjMap = {
+    'EPSG:4326': 'GEOGCS["GCS_WGS_1984",DATUM["D_WGS_1984",SPHEROID["WGS_1984",6378137.0,298.257223563]],PRIMEM["Greenwich",0.0],UNIT["Degree",0.0174532925199433]]',
+    'EPSG:4283': 'GEOGCS["GCS_GDA_1994",DATUM["D_GDA_1994",SPHEROID["GRS_1980",6378137.0,298.257222101]],PRIMEM["Greenwich",0.0],UNIT["Degree",0.0174532925199433]]',
+    'EPSG:7844': 'GEOGCS["GDA2020",DATUM["GDA2020",SPHEROID["GRS_1980",6378137.0,298.257222101]],PRIMEM["Greenwich",0.0],UNIT["Degree",0.0174532925199433]]',
+    'EPSG:3857': 'PROJCS["WGS_1984_Web_Mercator_Auxiliary_Sphere",GEOGCS["GCS_WGS_1984",DATUM["D_WGS_1984",SPHEROID["WGS_1984",6378137.0,298.257223563]],PRIMEM["Greenwich",0.0],UNIT["Degree",0.0174532925199433]],PROJECTION["Mercator_Auxiliary_Sphere"],PARAMETER["False_Easting",0.0],PARAMETER["False_Northing",0.0],PARAMETER["Central_Meridian",0.0],PARAMETER["Standard_Parallel_1",0.0],UNIT["Meter",1.0]]',
+  };
+  function _mgaPrj(epsg) {
+    const zone  = (epsg >= 7849 && epsg <= 7856) ? epsg - 7800 : epsg - 28300;
+    const datum = (epsg >= 7849) ? 'GDA2020' : 'GDA_1994';
+    const cm    = (zone - 1) * 6 - 177 + 3;
+    return `PROJCS["${datum}_MGA_Zone_${zone}",GEOGCS["${datum}",DATUM["${datum}",SPHEROID["GRS_1980",6378137.0,298.257222101]],PRIMEM["Greenwich",0.0],UNIT["Degree",0.0174532925199433]],PROJECTION["Transverse_Mercator"],PARAMETER["False_Easting",500000.0],PARAMETER["False_Northing",10000000.0],PARAMETER["Central_Meridian",${cm}.0],PARAMETER["Scale_Factor",0.9996],PARAMETER["Latitude_Of_Origin",0.0],UNIT["Meter",1.0]]`;
+  }
+  const epsgNum = exportCRS ? parseInt(exportCRS.replace('EPSG:', '')) : 4326;
+  const prj = prjMap[exportCRS] ||
+    ((epsgNum >= 28349 && epsgNum <= 28356) || (epsgNum >= 7849 && epsgNum <= 7856) ? _mgaPrj(epsgNum) : prjMap['EPSG:4326']);
+
+  // ── ZIP it up ────────────────────────────────────────────────────────────
+  return new Promise((resolve, reject) => {
+    try {
+      const zip = new JSZip();
+      zip.file(layerName + '.shp', shpBuf);
+      zip.file(layerName + '.shx', shxBuf);
+      zip.file(layerName + '.dbf', dbfBuf);
+      zip.file(layerName + '.prj', prj);
+      zip.generateAsync({ type: 'blob' }).then(resolve).catch(reject);
+    } catch(e) { reject(e); }
+  });
 }

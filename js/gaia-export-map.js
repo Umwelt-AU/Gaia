@@ -257,6 +257,29 @@ function exportMapPDFTemplate() {
                    font-size:11px;border:1px solid var(--border);border-radius:5px;
                    background:var(--bg);color:var(--text);outline:none;" placeholder="e.g. NSW DFSI (2025)"/>
         </div>
+        <div style="border-top:1px solid var(--border);padding-top:10px;">
+          <label style="font-family:var(--mono);font-size:9px;color:var(--text3);
+                        text-transform:uppercase;letter-spacing:0.5px;display:block;margin-bottom:6px;">
+            Layout Elements
+          </label>
+          <div style="display:grid;grid-template-columns:1fr 1fr;gap:4px 16px;">
+            <label style="font-family:var(--mono);font-size:9px;color:var(--text2);display:flex;align-items:center;gap:5px;cursor:pointer;">
+              <input type="checkbox" id="pdf-opt-legend" checked> Legend
+            </label>
+            <label style="font-family:var(--mono);font-size:9px;color:var(--text2);display:flex;align-items:center;gap:5px;cursor:pointer;">
+              <input type="checkbox" id="pdf-opt-northarrow" checked> North arrow
+            </label>
+            <label style="font-family:var(--mono);font-size:9px;color:var(--text2);display:flex;align-items:center;gap:5px;cursor:pointer;">
+              <input type="checkbox" id="pdf-opt-scalebar" checked> Scale bar
+            </label>
+            <label style="font-family:var(--mono);font-size:9px;color:var(--text2);display:flex;align-items:center;gap:5px;cursor:pointer;">
+              <input type="checkbox" id="pdf-opt-inset" checked> Inset map
+            </label>
+            <label style="font-family:var(--mono);font-size:9px;color:var(--text2);display:flex;align-items:center;gap:5px;cursor:pointer;">
+              <input type="checkbox" id="pdf-opt-grid"> Graticule grid
+            </label>
+          </div>
+        </div>
         <div style="display:flex;gap:8px;justify-content:flex-end;margin-top:4px;">
           <button class="btn btn-ghost btn-sm" onclick="this.closest('div[style*=fixed]').remove()"
             style="font-size:10px;">Cancel</button>
@@ -267,8 +290,15 @@ function exportMapPDFTemplate() {
               var figTitle = document.getElementById('pdf-title-input').value.trim() || '${defaultTitle}';
               var imgSrc   = document.getElementById('pdf-imgsrc-input').value.trim();
               var dataSrc  = document.getElementById('pdf-datasrc-input').value.trim();
+              var opts = {
+                legend:     document.getElementById('pdf-opt-legend').checked,
+                northArrow: document.getElementById('pdf-opt-northarrow').checked,
+                scaleBar:   document.getElementById('pdf-opt-scalebar').checked,
+                insetMap:   document.getElementById('pdf-opt-inset').checked,
+                grid:       document.getElementById('pdf-opt-grid').checked,
+              };
               this.closest('div[style*=fixed]').remove();
-              _exportMapPDFWithTemplate(figNum, figTitle, imgSrc, dataSrc);
+              _exportMapPDFWithTemplate(figNum, figTitle, imgSrc, dataSrc, opts);
             ">Export PDF</button>
         </div>
       </div>
@@ -280,13 +310,111 @@ function exportMapPDFTemplate() {
   }, 50);
 }
 
-function _exportMapPDFWithTemplate(figNum, figTitle, imgSrc, dataSrc) {
+// ── Capture a live MapLibre inset map as PNG bytes ──────────────────────────
+// Returns a Promise<Uint8Array|null>. Creates a hidden off-screen MapLibre
+// instance with Carto Positron, fits to Australia, draws an orange bbox for
+// the main map location, captures the WebGL canvas, then tears everything down.
+function _captureInsetMap() {
+  return new Promise(function(resolve) {
+    try {
+      const container = document.createElement('div');
+      container.style.cssText = 'position:fixed;left:-9999px;top:-9999px;width:357px;height:200px;visibility:hidden;pointer-events:none;z-index:-1;';
+      document.body.appendChild(container);
+
+      let mainBounds = null;
+      try { if (state && state.map) mainBounds = state.map.getBounds(); } catch(e) {}
+
+      const insetMap = new maplibregl.Map({
+        container: container,
+        style: 'https://basemaps.cartocdn.com/gl/positron-gl-style/style.json',
+        preserveDrawingBuffer: true,
+        interactive: false,
+        attributionControl: false,
+        bounds: [[112, -45], [155, -9]],
+        fitBoundsOptions: { padding: 8 }
+      });
+
+      let captured = false;
+
+      function cleanup() {
+        try { insetMap.remove(); } catch(e) {}
+        try { if (container.parentNode) document.body.removeChild(container); } catch(e) {}
+      }
+
+      function capture() {
+        if (captured) return;
+        captured = true;
+        try {
+          insetMap.getCanvas().toBlob(function(blob) {
+            cleanup();
+            if (!blob) { resolve(null); return; }
+            if (blob.arrayBuffer) {
+              blob.arrayBuffer()
+                .then(function(ab) { resolve(new Uint8Array(ab)); })
+                .catch(function() { resolve(null); });
+            } else {
+              const fr = new FileReader();
+              fr.onload  = function() { resolve(new Uint8Array(fr.result)); };
+              fr.onerror = function() { resolve(null); };
+              fr.readAsArrayBuffer(blob);
+            }
+          }, 'image/png');
+        } catch(e) { cleanup(); resolve(null); }
+      }
+
+      // After basemap tiles load, add the bbox rectangle then capture
+      insetMap.once('idle', function() {
+        if (captured) return;
+        if (mainBounds) {
+          try {
+            const w = mainBounds.getWest(), e = mainBounds.getEast();
+            const s = mainBounds.getSouth(), n = mainBounds.getNorth();
+            insetMap.addSource('_inset_bbox', {
+              type: 'geojson',
+              data: {
+                type: 'Feature',
+                geometry: { type: 'Polygon',
+                  coordinates: [[[w,s],[e,s],[e,n],[w,n],[w,s]]] }
+              }
+            });
+            insetMap.addLayer({ id: '_inset_bbox_fill', type: 'fill', source: '_inset_bbox',
+              paint: { 'fill-color': '#ff6600', 'fill-opacity': 0.22 } });
+            insetMap.addLayer({ id: '_inset_bbox_line', type: 'line', source: '_inset_bbox',
+              paint: { 'line-color': '#cc2200', 'line-width': 2, 'line-opacity': 0.9 } });
+            // Wait for bbox to render
+            insetMap.once('idle', function() {
+              requestAnimationFrame(function() { requestAnimationFrame(capture); });
+            });
+            insetMap.triggerRepaint();
+            // Fallback if second idle never fires
+            setTimeout(function() { if (!captured) capture(); }, 3000);
+          } catch(e) {
+            // bbox failed — capture basemap as-is
+            requestAnimationFrame(function() { requestAnimationFrame(capture); });
+          }
+        } else {
+          requestAnimationFrame(function() { requestAnimationFrame(capture); });
+        }
+      });
+
+      // Overall 8-second timeout
+      setTimeout(function() { if (!captured) capture(); }, 8000);
+
+    } catch(e) { resolve(null); }
+  });
+}
+
+async function _exportMapPDFWithTemplate(figNum, figTitle, imgSrc, dataSrc, opts) {
+  opts = Object.assign({ legend: true, northArrow: true, scaleBar: true, insetMap: true, grid: false }, opts || {});
   if (typeof PDFLib === 'undefined') {
     toast('pdf-lib not loaded — check your internet connection', 'error');
     return;
   }
 
   toast('Preparing PDF export…', 'info');
+
+  // Start inset capture early (runs in parallel while we build the main canvas)
+  const insetPromise = opts.insetMap ? _captureInsetMap() : Promise.resolve(null);
 
   const mapEl = document.getElementById('map');
   if (!mapEl) { toast('Map element not found', 'error'); return; }
@@ -411,8 +539,9 @@ function _exportMapPDFWithTemplate(figNum, figTitle, imgSrc, dataSrc) {
   }
 
   // ── Build the PDF from scratch ───────────────────────────────────────────────
-  // mapPngBytes: Uint8Array of the PNG file bytes (not a data URL)
-  function buildPDF(mapPngBytes) {
+  // mapPngBytes: Uint8Array of the main map PNG
+  // insetPngBytes: Uint8Array of the inset map PNG, or null
+  function buildPDF(mapPngBytes, insetPngBytes) {
     const { PDFDocument, rgb, StandardFonts } = PDFLib;
 
     // ── Page dimensions: A4 landscape ─────────────────────────────────────────
@@ -475,16 +604,21 @@ function _exportMapPDFWithTemplate(figNum, figTitle, imgSrc, dataSrc) {
         ? _UMWELT_LOGO_2024_B64 : _UMWELT_LOGO_B64;
       const logoBytes = Uint8Array.from(atob(logoSrc), function(c){return c.charCodeAt(0);});
 
-      return Promise.all([
+      const embedPromises = [
         pdfDoc.embedFont(StandardFonts.HelveticaBold),
         pdfDoc.embedFont(StandardFonts.Helvetica),
         pdfDoc.embedPng(mapPngBytes),
         pdfDoc.embedPng(logoBytes),
-      ]).then(function(results) {
-        const boldFont  = results[0];
-        const regFont   = results[1];
-        const mapImage  = results[2];
-        const logoImage = results[3];
+      ];
+      if (insetPngBytes && insetPngBytes.length > 8) {
+        embedPromises.push(pdfDoc.embedPng(insetPngBytes));
+      }
+      return Promise.all(embedPromises).then(function(results) {
+        const boldFont   = results[0];
+        const regFont    = results[1];
+        const mapImage   = results[2];
+        const logoImage  = results[3];
+        const insetImage = results[4] || null;
 
         // Word-wrap helper
         function wrapText(text, font, size, maxW) {
@@ -506,6 +640,38 @@ function _exportMapPDFWithTemplate(figNum, figTitle, imgSrc, dataSrc) {
 
         // ── 2. Map image (fills the map frame) ──────────────────────────────
         page.drawImage(mapImage, {x:MAP_X, y:MAP_Y, width:MAP_W, height:MAP_H});
+
+        // ── 2b. Graticule grid (optional) ───────────────────────────────────
+        if (opts.grid && state.map) {
+          try {
+            const bounds = state.map.getBounds();
+            const gridColor = rgb(0.5, 0.5, 0.8);
+            const gridAlpha = 0.25;
+            // Pick a nice degree interval
+            const dLng = bounds.getEast() - bounds.getWest();
+            const dLat = bounds.getNorth() - bounds.getSouth();
+            const niceIntervals = [0.01,0.05,0.1,0.25,0.5,1,2,5,10,20];
+            let intLng = niceIntervals[0], intLat = niceIntervals[0];
+            niceIntervals.forEach(function(v){ if(dLng/v > 3 && dLng/v < 12) intLng=v; });
+            niceIntervals.forEach(function(v){ if(dLat/v > 3 && dLat/v < 12) intLat=v; });
+            function mapLngToX(lng){ return MAP_X + (lng-bounds.getWest())/dLng*MAP_W; }
+            function mapLatToY(lat){ return MAP_Y + (lat-bounds.getSouth())/(bounds.getNorth()-bounds.getSouth())*MAP_H; }
+            // Vertical lines (longitude)
+            const startLng = Math.ceil(bounds.getWest()/intLng)*intLng;
+            for (let lng=startLng; lng<bounds.getEast(); lng+=intLng) {
+              const px = mapLngToX(lng);
+              page.drawLine({start:{x:px,y:MAP_Y},end:{x:px,y:MAP_Y+MAP_H},thickness:0.3,color:gridColor,opacity:gridAlpha});
+              page.drawText(lng.toFixed(intLng<1?2:0)+'°', {x:px-8,y:MAP_Y-6,size:4,font:regFont,color:gridColor});
+            }
+            // Horizontal lines (latitude)
+            const startLat = Math.ceil(bounds.getSouth()/intLat)*intLat;
+            for (let lat=startLat; lat<bounds.getNorth(); lat+=intLat) {
+              const py = mapLatToY(lat);
+              page.drawLine({start:{x:MAP_X,y:py},end:{x:MAP_X+MAP_W,y:py},thickness:0.3,color:gridColor,opacity:gridAlpha});
+              page.drawText(lat.toFixed(intLat<1?2:0)+'°', {x:MAP_X-16,y:py-2,size:4,font:regFont,color:gridColor});
+            }
+          } catch(ge) { console.warn('Grid draw failed:', ge); }
+        }
 
         // ── 3. Map frame border — all 4 sides of map bounding box ──────────
         const brdC = rgb(0.306, 0.306, 0.306);
@@ -529,121 +695,42 @@ function _exportMapPDFWithTemplate(figNum, figTitle, imgSrc, dataSrc) {
         });
 
         // ── 7. Legend label — bold black ─────────────────────────────────────
+        if (opts.legend) {
         page.drawText('Legend', {x:LEG_LABEL_X, y:LEG_LABEL_Y, size:8, font:boldFont, color:BLACK_TEXT});
+        } // end legend label
 
-        // ── 8. Inset box — Australia location map ────────────────────────────
-        // Compute where the map centre is in lat/lng using Leaflet map state
-        var mapCentreLat = 0, mapCentreLng = 133;
-        try {
-          if (window._gaiaMap && window._gaiaMap.getCenter) {
-            var c = window._gaiaMap.getCenter();
-            mapCentreLat = c.lat;
-            mapCentreLng = c.lng;
-          }
-        } catch(e) {}
-
-        // Draw the inset box border
+        // ── 8. Inset box — live MapLibre location map ────────────────────────
+        // Dimensions hoisted so scale bar can reference even if inset is hidden
         const INSET_BOX_X = PANEL_X + 8;
         const INSET_BOX_W = PANEL_W - 16;
         const INSET_BOX_Y_BOT = 168;
         const INSET_BOX_Y_TOP = 252;
-        const INSET_BOX_H = INSET_BOX_Y_TOP - INSET_BOX_Y_BOT;
-        page.drawRectangle({
-          x:INSET_BOX_X, y:INSET_BOX_Y_BOT, width:INSET_BOX_W, height:INSET_BOX_H,
-          color:rgb(0.94,0.96,0.99), borderColor:brdC, borderWidth:0.5
-        });
 
-        // ── Inset map: detailed Australia outline + state borders + location ──
-        var ausMinLng=113, ausMaxLng=154, ausMinLat=-44, ausMaxLat=-10;
-        var ibx=INSET_BOX_X+3, iby=INSET_BOX_Y_BOT+3, ibw=INSET_BOX_W-6, ibh=INSET_BOX_H-6;
-        function lngToX(lng){ return ibx + (lng-ausMinLng)/(ausMaxLng-ausMinLng)*ibw; }
-        function latToY(lat){ return iby + (lat-ausMinLat)/(ausMaxLat-ausMinLat)*ibh; }
-
-        // Helper: convert array of [lng,lat] to SVG path string
-        function toSvgPath(pts) {
-          var d = 'M '+lngToX(pts[0][0]).toFixed(1)+' '+latToY(pts[0][1]).toFixed(1);
-          for (var pi=1; pi<pts.length; pi++) d += ' L '+lngToX(pts[pi][0]).toFixed(1)+' '+latToY(pts[pi][1]).toFixed(1);
-          return d + ' Z';
-        }
-
-        // Higher-fidelity Australia mainland outline
-        var ausMainland = [
-          [113.2,-22.0],[113.1,-26.0],[113.4,-29.5],[114.6,-31.0],[115.7,-31.9],
-          [116.0,-33.0],[117.0,-34.0],[118.0,-34.5],[119.2,-34.2],[121.0,-33.8],
-          [123.0,-33.9],[124.0,-34.0],[126.0,-33.8],[127.0,-33.9],[128.0,-33.9],
-          [129.0,-34.5],[130.0,-35.0],[131.0,-34.0],[131.8,-32.9],[132.5,-32.0],
-          [133.0,-32.0],[134.0,-33.5],[135.0,-34.5],[136.0,-35.5],[137.0,-35.7],
-          [138.0,-35.7],[139.5,-36.8],[140.7,-38.0],[141.0,-38.5],[142.0,-38.7],
-          [143.5,-39.0],[145.0,-38.8],[146.5,-38.5],[148.0,-38.0],[149.5,-37.5],
-          [150.5,-36.5],[151.0,-35.0],[151.5,-33.5],[152.5,-32.0],[153.0,-29.5],
-          [153.5,-28.0],[153.4,-25.0],[152.5,-22.0],[151.0,-20.0],[149.0,-17.0],
-          [146.0,-15.5],[145.0,-15.0],[143.5,-14.5],[142.0,-14.0],[141.0,-13.0],
-          [139.5,-12.5],[138.0,-12.0],[136.5,-12.0],[135.0,-12.5],[134.0,-13.0],
-          [131.0,-12.0],[130.0,-11.5],[129.5,-12.5],[129.0,-14.0],[128.0,-15.5],
-          [126.5,-14.5],[125.0,-14.0],[124.0,-14.5],[122.5,-17.5],[121.5,-19.5],
-          [120.0,-20.5],[119.0,-21.5],[117.5,-21.0],[116.0,-21.0],[114.5,-22.0],[113.2,-22.0]
-        ];
-
-        // Tasmania
-        var tasmania = [
-          [145.5,-40.5],[146.5,-40.8],[147.5,-41.0],[148.5,-41.5],[148.5,-43.0],
-          [147.5,-43.5],[146.5,-43.5],[145.5,-43.0],[145.0,-42.0],[145.5,-40.5]
-        ];
-
-        // Draw mainland fill
-        page.drawSvgPath(toSvgPath(ausMainland), {x:0, y:0, color:rgb(0.78,0.82,0.86), borderColor:brdC, borderWidth:0.5});
-        // Draw Tasmania fill
-        page.drawSvgPath(toSvgPath(tasmania), {x:0, y:0, color:rgb(0.78,0.82,0.86), borderColor:brdC, borderWidth:0.4});
-
-        // State/territory boundary lines — solid thin lines (pdf-lib has no dashArray)
-        // Each entry is an array of [lng,lat] waypoints forming one border segment
-        var stateBorders = [
-          // WA eastern border: 129°E from north coast to south coast
-          [[129,-13.5],[129,-34.0]],
-          // SA/NT top: 26°S from 129°E to 138°E
-          [[129,-26.0],[138,-26.0]],
-          // NT/QLD border: 138°E from ~17.5°S to 26°S
-          [[138,-17.5],[138,-26.0]],
-          // QLD/SA/NSW corner: 141°E from ~10.5°S to 37.5°S
-          [[141,-10.5],[141,-37.5]],
-          // QLD/NSW border: 29°S from 141°E to ~153°E
-          [[141,-29.0],[153,-29.0]],
-          // NSW/VIC border (approximate Murray River area simplified)
-          [[141,-34.0],[150,-34.0],[150.5,-37.5]]
-        ];
-        var borderColor = rgb(0.60,0.62,0.68);
-        stateBorders.forEach(function(border) {
-          for (var bi=0; bi<border.length-1; bi++) {
-            page.drawLine({
-              start:{x:lngToX(border[bi][0]),   y:latToY(border[bi][1])},
-              end:  {x:lngToX(border[bi+1][0]), y:latToY(border[bi+1][1])},
-              thickness:0.35, color:borderColor
+        if (opts.insetMap) {
+          const INSET_BOX_H = INSET_BOX_Y_TOP - INSET_BOX_Y_BOT;
+          if (insetImage) {
+            // Draw the live screenshot
+            page.drawImage(insetImage, {
+              x: INSET_BOX_X, y: INSET_BOX_Y_BOT,
+              width: INSET_BOX_W, height: INSET_BOX_H
+            });
+          } else {
+            // Fallback placeholder if capture failed
+            page.drawRectangle({
+              x: INSET_BOX_X, y: INSET_BOX_Y_BOT,
+              width: INSET_BOX_W, height: INSET_BOX_H,
+              color: rgb(0.88, 0.91, 0.94)
             });
           }
-        });
-
-        // Draw location indicator: red circle with cross-hairs
-        var dotX = lngToX(mapCentreLng);
-        var dotY = latToY(mapCentreLat);
-        dotX = Math.max(ibx+4, Math.min(ibx+ibw-4, dotX));
-        dotY = Math.max(iby+4, Math.min(iby+ibh-4, dotY));
-        var DR = 4;  // dot radius
-        var CHR = 6; // cross-hair radius
-        // Cross-hairs
-        page.drawLine({start:{x:dotX-CHR,y:dotY}, end:{x:dotX+CHR,y:dotY}, thickness:0.6, color:rgb(0.8,0.05,0.05)});
-        page.drawLine({start:{x:dotX,y:dotY-CHR}, end:{x:dotX,y:dotY+CHR}, thickness:0.6, color:rgb(0.8,0.05,0.05)});
-        // Filled circle
-        page.drawEllipse({x:dotX, y:dotY, xScale:DR, yScale:DR,
-          color:rgb(0.9,0.1,0.1), borderColor:rgb(0.6,0,0), borderWidth:0.5, opacity:0.85});
-        // "Location" label below dot if space permits
-        var lblText = 'Location';
-        var lblX = dotX - 9;
-        var lblY = dotY - DR - 5;
-        if (lblY > iby + 2) {
-          page.drawText(lblText, {x:lblX, y:lblY, size:4, font:regFont, color:rgb(0.6,0,0)});
-        }
+          // Border drawn on top of image
+          page.drawLine({start:{x:INSET_BOX_X,              y:INSET_BOX_Y_BOT},        end:{x:INSET_BOX_X+INSET_BOX_W, y:INSET_BOX_Y_BOT},        thickness:0.5, color:brdC});
+          page.drawLine({start:{x:INSET_BOX_X,              y:INSET_BOX_Y_TOP},        end:{x:INSET_BOX_X+INSET_BOX_W, y:INSET_BOX_Y_TOP},        thickness:0.5, color:brdC});
+          page.drawLine({start:{x:INSET_BOX_X,              y:INSET_BOX_Y_BOT},        end:{x:INSET_BOX_X,              y:INSET_BOX_Y_TOP},        thickness:0.5, color:brdC});
+          page.drawLine({start:{x:INSET_BOX_X+INSET_BOX_W, y:INSET_BOX_Y_BOT},        end:{x:INSET_BOX_X+INSET_BOX_W, y:INSET_BOX_Y_TOP},        thickness:0.5, color:brdC});
+        } // end insetMap
 
         // ── 9. Legend entries — above inset box ──────────────────────────────
+        if (opts.legend) {
         const legendRows = getLegendRows();
         const ROW_H=11, SW=8, GAP=4;
         const LEG_MIN_Y = INSET_BOX_Y_TOP + 4;  // must be above inset box
@@ -672,8 +759,10 @@ function _exportMapPDFWithTemplate(figNum, figTitle, imgSrc, dataSrc) {
           page.drawText(String(row.label).substring(0,23),
             {x:sx+SW+GAP, y:rowY, size:6.5, font:regFont, color:TEXT_DARK});
         });
+        } // end legend entries
 
         // ── 10. Scale bar — below inset box ──────────────────────────────────
+        if (opts.scaleBar) {
         const scaleInfo = getMapScaleInfo();
         const BAR_X  = PANEL_X + 10;
         const barPt  = Math.min(scaleInfo.barPt || 80, PANEL_W - 45);
@@ -704,19 +793,25 @@ function _exportMapPDFWithTemplate(figNum, figTitle, imgSrc, dataSrc) {
         page.drawLine({start:{x:BAR_X,y:BAR_Y},       end:{x:BAR_X,y:BAR_Y+4},            thickness:0.4,color:rgb(0.2,0.2,0.2)});
         page.drawLine({start:{x:BAR_X+SEG,y:BAR_Y},   end:{x:BAR_X+SEG,y:BAR_Y+4},        thickness:0.4,color:rgb(0.2,0.2,0.2)});
         page.drawLine({start:{x:BAR_X+barPt,y:BAR_Y}, end:{x:BAR_X+barPt,y:BAR_Y+4},     thickness:0.4,color:rgb(0.2,0.2,0.2)});
+        } // end scaleBar
 
         // ── 11. North Arrow — inside map area, bottom-right, pointing UP ──────
+        if (opts.northArrow) {
         // Arrow body pointing up: tip at top, base at bottom
         const NA_CX = MAP_X + MAP_W - 20;  // bottom-right of map
         const NA_CY = MAP_Y + 18;
         const NA_R  = 9;
-        // Correct upward-pointing arrow (tip up = North)
-        // In PDF coords: larger y = up, so tip at NA_CY+NA_R, base at NA_CY-NA_R
+        // drawSvgPath flips y internally (pdfY = opts.y − svgY), so negate y values
+        // so they land in the right PDF position.
+        // Tip:   svgY = -NA_R  → pdfY = NA_CY + NA_R  (above centre) ✓
+        // Wings: svgY = 0      → pdfY = NA_CY          (centre)       ✓
+        // Notch: svgY = +NA_R*0.3 → pdfY = NA_CY - NA_R*0.3 (below wings) ✓
         page.drawSvgPath(
-          'M 0 '+NA_R+' L '+(NA_R*0.45)+' 0 L 0 '+(NA_R*0.3)+' L '+(-(NA_R*0.45))+' 0 Z',
+          'M 0 '+(-NA_R)+' L '+(NA_R*0.45)+' 0 L 0 '+(NA_R*0.3)+' L '+(-(NA_R*0.45))+' 0 Z',
           {x:NA_CX, y:NA_CY, color:BLACK_TEXT, borderWidth:0});
         // 'N' label above the arrow tip
         page.drawText('N', {x:NA_CX-3, y:NA_CY+NA_R+2, size:7, font:boldFont, color:BLACK_TEXT});
+        } // end northArrow
 
         // ── 11. Image / Data Source strip — bottom of map, matches template ──
         var srcParts = [];
@@ -786,22 +881,26 @@ function _exportMapPDFWithTemplate(figNum, figTitle, imgSrc, dataSrc) {
     });
   }
 
-  // ── Capture offscreen canvas and build PDF ──────────────────────────────────
-  offscreen.toBlob(function(blob) {
-    if (!blob) { toast('Canvas capture returned null blob', 'error'); return; }
-    if (blob.arrayBuffer) {
-      blob.arrayBuffer().then(function(ab) {
-        buildPDF(new Uint8Array(ab));
-      }).catch(function(err) {
-        toast('Canvas read failed: ' + err.message, 'error');
-      });
-    } else {
-      var fr = new FileReader();
-      fr.onload = function() { buildPDF(new Uint8Array(fr.result)); };
-      fr.onerror = function() { toast('Canvas read failed', 'error'); };
-      fr.readAsArrayBuffer(blob);
-    }
-  }, 'image/png');
+  // ── Capture main map canvas + await inset, then build PDF ───────────────────
+  try {
+    const mapPngBytes = await new Promise(function(resolve, reject) {
+      offscreen.toBlob(function(blob) {
+        if (!blob) { reject(new Error('Canvas capture returned null blob')); return; }
+        if (blob.arrayBuffer) {
+          blob.arrayBuffer().then(function(ab) { resolve(new Uint8Array(ab)); }).catch(reject);
+        } else {
+          const fr = new FileReader();
+          fr.onload  = function() { resolve(new Uint8Array(fr.result)); };
+          fr.onerror = function() { reject(new Error('Canvas read failed')); };
+          fr.readAsArrayBuffer(blob);
+        }
+      }, 'image/png');
+    });
+    const insetPngBytes = await insetPromise;
+    buildPDF(mapPngBytes, insetPngBytes);
+  } catch(err) {
+    toast('Canvas capture failed: ' + err.message, 'error');
+  }
 }
 
 // ══════════════════════════════════════════════════

@@ -527,6 +527,19 @@
       <!-- Legend map control button -->
       <button id="legend-map-btn" title="Toggle Legend" onclick="toggleMapLegend()">▤</button>
       <button id="attr-table-map-btn" title="Toggle Attribute Table" onclick="toggleAttrTable()">⊟</button>
+      <button id="box-select-map-btn" title="Box Select — drag to select features" onclick="toggleBoxSelect()">⬚</button>
+      <button id="undo-map-btn" title="Undo last layer operation (Ctrl+Z)" onclick="undoLayerOp()" disabled>↩</button>
+      <button id="redo-map-btn" title="Redo (Ctrl+Y)" onclick="redoLayerOp()" disabled>↪</button>
+      <!-- North arrow -->
+      <div id="north-arrow" title="North arrow — click to reset bearing">
+        <svg id="north-arrow-svg" viewBox="0 0 32 32" xmlns="http://www.w3.org/2000/svg">
+          <polygon points="16,3 20,16 16,13 12,16" fill="var(--accent)" opacity="0.95"/>
+          <polygon points="16,29 20,16 16,19 12,16" fill="var(--text3)" opacity="0.7"/>
+          <text x="16" y="14" text-anchor="middle" font-size="5.5" font-family="var(--mono)" font-weight="700" fill="var(--accent)" dy="-1">N</text>
+        </svg>
+      </div>
+      <!-- Snap indicator (shown when drawing snaps to a vertex) -->
+      <div id="snap-indicator"></div>
       <!-- Floating legend panel -->
       <div id="legend-float">
         <div id="legend-float-header">
@@ -588,6 +601,12 @@
           </button>
           <button id="show-selected-btn" class="btn btn-ghost btn-sm" onclick="toggleShowOnlySelected()" title="Show only selected features" style="font-size:9px;padding:2px 8px;">
             ◈ Selected
+          </button>
+          <button class="btn btn-ghost btn-sm" onclick="selectVisibleFeatures()" title="Select only features visible in the current map viewport" style="font-size:9px;padding:2px 8px;">
+            ⧠ Visible
+          </button>
+          <button class="btn btn-ghost btn-sm" onclick="copySelectedToLayer()" title="Copy selected features to another layer" style="font-size:9px;padding:2px 8px;">
+            ⧉ Copy to Layer
           </button>
           <button class="btn btn-ghost btn-sm" onclick="clearSelection()" title="Clear selection" style="font-size:9px;padding:2px 8px;">
             ⬜ Clear
@@ -897,6 +916,7 @@
         <div class="export-opt" onclick="selectExportFormat(this,'kml')"><div class="export-opt-icon">📍</div><div class="export-opt-name">KML</div></div>
         <div class="export-opt" onclick="selectExportFormat(this,'csv')"><div class="export-opt-icon">⋮</div><div class="export-opt-name">CSV</div></div>
         <div class="export-opt" onclick="selectExportFormat(this,'wkt')"><div class="export-opt-icon">〜</div><div class="export-opt-name">WKT</div></div>
+        <div class="export-opt" onclick="selectExportFormat(this,'shapefile')"><div class="export-opt-icon">🗂</div><div class="export-opt-name">Shapefile</div></div>
       </div>
     </div>
     <div style="margin-bottom:8px;">
@@ -946,7 +966,9 @@
   <div class="ctx-item" onclick="ctxOpenAttrTable()"><span class="ctx-icon">⊟</span> Open Attribute Table</div>
   <div class="ctx-sep"></div>
   <div class="ctx-item" onclick="ctxSelectAll()"><span class="ctx-icon">☑</span> Select All Features</div>
+  <div class="ctx-item" onclick="ctxSelectVisible()"><span class="ctx-icon">⧠</span> Select Visible Features</div>
   <div class="ctx-item" onclick="ctxClearSelection()"><span class="ctx-icon">⬜</span> Clear Selection</div>
+  <div class="ctx-item" onclick="ctxCopySelectedToLayer()"><span class="ctx-icon">⧉</span> Copy Selected to Layer…</div>
   <div class="ctx-sep"></div>
   <div class="ctx-item" onclick="ctxRenameLayer()"><span class="ctx-icon">✎</span> Rename Layer</div>
   <div class="ctx-item" onclick="ctxChangeColor()"><span class="ctx-icon">🎨</span> Symbology</div>
@@ -1459,6 +1481,38 @@
         </div>
       </div>
 
+      <!-- Clip -->
+      <div class="gp-section" id="gp-clip-panel">
+        <div class="gp-section-header" onclick="gpToggle('gp-clip')"
+             data-gp-tip="Cuts the geometry of Layer A features to the exact boundary of Layer B polygons. Points are kept or removed; lines and polygons are trimmed to the mask boundary. More precise than Intersection, which keeps whole features.">
+          ✂ Clip<span style="color:var(--text3);font-weight:400;margin-left:4px;text-transform:none;letter-spacing:0;">— trim to mask boundary</span>
+          <span class="gp-chevron">▶</span>
+        </div>
+        <div class="gp-section-body" id="gp-clip">
+          <div class="gp-row"><label class="gp-label">Layer A (features to clip)</label><select id="gp-clip-a"><option value="">— select layer —</option></select></div>
+          <div class="gp-row"><label class="gp-label">Layer B (clip mask — polygons)</label><select id="gp-clip-b"><option value="">— select layer —</option></select></div>
+          <div class="gp-row"><label class="gp-label">Output Name</label><input type="text" id="gp-clip-name" placeholder="Clip Result" style="padding:4px 7px;font-size:10px;width:100%;box-sizing:border-box;"/></div>
+          <button class="btn btn-primary btn-full" onclick="runGeoClip()" style="font-size:9px;">✂ Run Clip</button>
+          <div class="gp-result" id="gp-clip-result"></div>
+        </div>
+      </div>
+
+      <!-- Split -->
+      <div class="gp-section" id="gp-split-panel">
+        <div class="gp-section-header" onclick="gpToggle('gp-split')"
+             data-gp-tip="Splits polygon or line features in Layer A wherever line features from Layer B cross them. Each feature is divided at the intersection points, producing two or more output features.">
+          ✦ Split<span style="color:var(--text3);font-weight:400;margin-left:4px;text-transform:none;letter-spacing:0;">— divide features by a line</span>
+          <span class="gp-chevron">▶</span>
+        </div>
+        <div class="gp-section-body" id="gp-split">
+          <div class="gp-row"><label class="gp-label">Layer A (features to split)</label><select id="gp-split-a"><option value="">— select layer —</option></select></div>
+          <div class="gp-row"><label class="gp-label">Layer B (split lines)</label><select id="gp-split-b"><option value="">— select layer —</option></select></div>
+          <div class="gp-row"><label class="gp-label">Output Name</label><input type="text" id="gp-split-name" placeholder="Split Result" style="padding:4px 7px;font-size:10px;width:100%;box-sizing:border-box;"/></div>
+          <button class="btn btn-primary btn-full" onclick="runGeoSplit()" style="font-size:9px;">✦ Run Split</button>
+          <div class="gp-result" id="gp-split-result"></div>
+        </div>
+      </div>
+
       <!-- Union -->
       <div class="gp-section">
         <div class="gp-section-header" onclick="gpToggle('gp-union')"
@@ -1544,6 +1598,28 @@
           <div class="gp-row"><label class="gp-label">Output Name</label><input type="text" id="gp-hull-name" placeholder="Bounding Geometry" style="padding:4px 7px;font-size:10px;width:100%;box-sizing:border-box;"/></div>
           <button class="btn btn-primary btn-full" onclick="runGeoBoundingGeometry()" style="font-size:9px;">⬠ Run Bounding Geometry</button>
           <div class="gp-result" id="gp-hull-result"></div>
+        </div>
+      </div>
+
+      <!-- Topology Validation -->
+      <div class="gp-section" id="gp-topo-panel">
+        <div class="gp-section-header" onclick="gpToggle('gp-topo')"
+             data-gp-tip="Scans layer geometries for common issues: self-intersecting rings, unclosed rings, duplicate consecutive vertices, empty geometries, and coordinate precision problems. Results are flagged as a new point layer marking each problem location.">
+          ⚠ Topology Check<span style="color:var(--text3);font-weight:400;margin-left:4px;text-transform:none;letter-spacing:0;">— validate geometries</span>
+          <span class="gp-chevron">▶</span>
+        </div>
+        <div class="gp-section-body" id="gp-topo">
+          <div class="gp-row"><label class="gp-label">Layer to Validate</label><select id="gp-topo-src"><option value="">— select layer —</option></select></div>
+          <div class="gp-row" style="display:flex;flex-direction:column;gap:4px;">
+            <label style="font-size:9px;color:var(--text3);margin-bottom:2px;">Checks to run</label>
+            <label style="font-size:9px;color:var(--text2);display:flex;align-items:center;gap:5px;"><input type="checkbox" id="topo-chk-selfintersect" checked> Self-intersecting rings</label>
+            <label style="font-size:9px;color:var(--text2);display:flex;align-items:center;gap:5px;"><input type="checkbox" id="topo-chk-unclosed" checked> Unclosed rings</label>
+            <label style="font-size:9px;color:var(--text2);display:flex;align-items:center;gap:5px;"><input type="checkbox" id="topo-chk-dupverts" checked> Duplicate consecutive vertices</label>
+            <label style="font-size:9px;color:var(--text2);display:flex;align-items:center;gap:5px;"><input type="checkbox" id="topo-chk-empty" checked> Empty / null geometries</label>
+            <label style="font-size:9px;color:var(--text2);display:flex;align-items:center;gap:5px;"><input type="checkbox" id="topo-chk-spike" checked> Spike vertices (angle &lt; 1°)</label>
+          </div>
+          <button class="btn btn-primary btn-full" onclick="runTopoCheck()" style="font-size:9px;margin-top:6px;">⚠ Run Topology Check</button>
+          <div class="gp-result" id="gp-topo-result"></div>
         </div>
       </div>
 

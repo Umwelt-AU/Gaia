@@ -75,7 +75,12 @@ function _renderMapLayer(layer, idx) {
   if (!state.map.getSource(mapId)) {
     state.map.addSource(mapId, { type: 'geojson', data: geojson });
   } else {
-    try { state.map.getSource(mapId).setData(geojson); } catch(_) {}
+    try {
+      // Pass a shallow-copy object so MapLibre always detects a change,
+      // then force a repaint — setData alone can stall when going from empty → first feature.
+      state.map.getSource(mapId).setData({ ...geojson, features: [...geojson.features] });
+      state.map.triggerRepaint();
+    } catch(_) {}
   }
 
   // --- Build per-feature colour expression using _fill_color / _stroke_color properties
@@ -292,6 +297,7 @@ function refreshMapSelection(layerIdx) {
 
 // ── ADD LAYER (main entry point) ─────────────────────────────────────────
 function addLayer(geojson, name, sourceCRS, format) {
+  pushHistorySnapshot('add:' + name);
   const color = LAYER_COLORS[state.layers.length % LAYER_COLORS.length];
   const idx   = state.layers.length;
   const geomTypes = new Set();
@@ -612,9 +618,10 @@ function _renderLayerItem(layer, i) {
          ).join('')}
        </select>`
     : '';
-  const featCount = layer.isTile
-    ? `<span style="font-family:var(--mono);font-size:9px;padding:1px 5px;background:var(--bg3);border:1px solid var(--border);border-radius:3px;color:var(--text3);">${Math.round((layer.layerOpacity??1)*100)}% opacity</span>`
-    : ((layer.geojson||{}).features||[]).length + ' feat';
+  const rawCount  = ((layer.geojson||{}).features||[]).length;
+  const featBadge = layer.isTile
+    ? `<span style="font-family:var(--mono);font-size:9px;padding:1px 5px;background:var(--bg3);border:1px solid var(--border);border-radius:3px;color:var(--text3);">${Math.round((layer.layerOpacity??1)*100)}%</span>`
+    : `<span style="font-family:var(--mono);font-size:9px;padding:1px 6px;background:var(--bg3);border:1px solid var(--border);border-radius:10px;color:var(--text2);font-weight:500;">${rawCount.toLocaleString()}</span>`;
   const _eyeOpen = `<svg xmlns="http://www.w3.org/2000/svg" width="13" height="13" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2" stroke-linecap="round" stroke-linejoin="round"><path d="M1 12s4-8 11-8 11 8 11 8-4 8-11 8-11-8-11-8z"/><circle cx="12" cy="12" r="3"/></svg>`;
   const _eyeOff  = `<svg xmlns="http://www.w3.org/2000/svg" width="13" height="13" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2" stroke-linecap="round" stroke-linejoin="round"><path d="M17.94 17.94A10.07 10.07 0 0 1 12 20c-7 0-11-8-11-8a18.45 18.45 0 0 1 5.06-5.94M9.9 4.24A9.12 9.12 0 0 1 12 4c7 0 11 8 11 8a18.5 18.5 0 0 1-2.16 3.19m-6.72-1.07a3 3 0 1 1-4.24-4.24"/><line x1="1" y1="1" x2="23" y2="23"/></svg>`;
   return `
@@ -626,7 +633,7 @@ function _renderLayerItem(layer, i) {
          ondragleave="handleLayerDragLeave(event,${i})"
          ondrop="handleLayerDrop(event,${i})"
          ondragend="handleLayerDragEnd(event)">
-      <!-- Row 1: handle · icon · name · eye -->
+      <!-- Row 1: handle · icon · name · count badge · zoom · eye -->
       <div class="layer-item-top">
         <div class="layer-drag-handle" title="Drag to reorder or into a group">⠿</div>
         <div class="layer-geom-icon"
@@ -635,13 +642,16 @@ function _renderLayerItem(layer, i) {
         <div class="layer-info">
           <div class="layer-name">${escHtml(layer.name)}</div>
         </div>
+        ${featBadge}
+        ${!layer.isTile ? `<button class="btn btn-ghost btn-sm" style="padding:1px 4px;font-size:11px;flex-shrink:0;opacity:0.6;" title="Zoom to layer"
+                onclick="event.stopPropagation();zoomToLayer(${i})">⛶</button>` : ''}
         <button class="btn btn-ghost btn-sm layer-vis-btn${layer.visible?'':' layer-vis-btn--off'}"
                 onclick="event.stopPropagation();toggleLayerVisibility(${i})"
                 title="${layer.visible?'Hide layer':'Show layer'}">${layer.visible?_eyeOpen:_eyeOff}</button>
       </div>
       <!-- Row 2: meta · group selector · options -->
       <div class="layer-item-bottom">
-        <span class="layer-meta">${escHtml(layer.format)} · ${layer.isTile ? featCount : escHtml(featCount)}</span>
+        <span class="layer-meta">${escHtml(layer.format)}</span>
         ${groupOpts}
         <button class="btn btn-ghost btn-sm" style="padding:1px 5px;font-size:12px;letter-spacing:1px;flex-shrink:0;"
                 onclick="event.stopPropagation();openLayerCtxMenu(event,${i})" title="Options">⋯</button>
@@ -877,6 +887,12 @@ function refreshLayerZOrder() {
   });
 }
 
+function zoomToLayer(i) {
+  const layer = state.layers[i];
+  if (!layer) return;
+  _fitLayerBounds(layer, { padding: CONSTANTS.MAP_FIT_PADDING });
+}
+
 function toggleLayerVisibility(i) {
   const l = state.layers[i];
   l.visible = !l.visible;
@@ -918,7 +934,8 @@ function setLayerOpacity(idx, val) {
 function removeLayer(i) {
   const layer = state.layers[i];
   if (!layer) return;
-  if (!confirm(`Remove layer "${layer.name}"? This cannot be undone.`)) return;
+  if (!confirm(`Remove layer "${layer.name}"?`)) return;
+  pushHistorySnapshot('remove:' + layer.name);
   _removeLayerImmediate(i);
 }
 
@@ -982,5 +999,122 @@ function clearStats() {
   document.getElementById('stats-section').style.display='none';
   document.getElementById('attr-strip-table-wrap').innerHTML='<div class="empty-state">Select a layer to view attributes</div>';
   document.getElementById('table-count').textContent='';
+}
+
+// ── GLOBAL LAYER UNDO / REDO ──────────────────────────────────────────────
+// Snapshots the entire layers array as JSON. Tile/service layers are skipped
+// (they carry no local GeoJSON) and restored by reference pointer only.
+const _HISTORY_MAX = 20;
+
+function pushHistorySnapshot(label) {
+  try {
+    // Serialise every layer's GeoJSON and key properties
+    const snap = state.layers.map(l => ({
+      name: l.name, color: l.color, visible: l.visible,
+      sourceCRS: l.sourceCRS, format: l.format, fields: l.fields,
+      geomType: l.geomType, labelField: l.labelField, labelVisible: l.labelVisible,
+      layerOpacity: l.layerOpacity, symbology: l.symbology,
+      classifyConfig: l.classifyConfig ? JSON.parse(JSON.stringify(l.classifyConfig)) : null,
+      isTile: l.isTile || false,
+      geojson: l.isTile ? null : JSON.parse(JSON.stringify(l.geojson)),
+      _label: label || '',
+    }));
+    state._undoStack.push(snap);
+    if (state._undoStack.length > _HISTORY_MAX) state._undoStack.shift();
+    state._redoStack = []; // new action clears redo
+    _updateUndoButtons();
+  } catch(e) { console.warn('pushHistorySnapshot failed:', e); }
+}
+
+function undoLayerOp() {
+  if (!state._undoStack.length) { toast('Nothing to undo', 'info'); return; }
+  // Save current state to redo stack
+  try {
+    const cur = state.layers.map(l => ({
+      name: l.name, color: l.color, visible: l.visible,
+      sourceCRS: l.sourceCRS, format: l.format, fields: l.fields,
+      geomType: l.geomType, labelField: l.labelField, labelVisible: l.labelVisible,
+      layerOpacity: l.layerOpacity, symbology: l.symbology,
+      classifyConfig: l.classifyConfig ? JSON.parse(JSON.stringify(l.classifyConfig)) : null,
+      isTile: l.isTile || false,
+      geojson: l.isTile ? null : JSON.parse(JSON.stringify(l.geojson)),
+    }));
+    state._redoStack.push(cur);
+  } catch(e) {}
+  const snap = state._undoStack.pop();
+  _applyHistorySnapshot(snap);
+  toast('Undo', 'info');
+  _updateUndoButtons();
+}
+
+function redoLayerOp() {
+  if (!state._redoStack.length) { toast('Nothing to redo', 'info'); return; }
+  try {
+    const cur = state.layers.map(l => ({
+      name: l.name, color: l.color, visible: l.visible,
+      sourceCRS: l.sourceCRS, format: l.format, fields: l.fields,
+      geomType: l.geomType, labelField: l.labelField, labelVisible: l.labelVisible,
+      layerOpacity: l.layerOpacity, symbology: l.symbology,
+      classifyConfig: l.classifyConfig ? JSON.parse(JSON.stringify(l.classifyConfig)) : null,
+      isTile: l.isTile || false,
+      geojson: l.isTile ? null : JSON.parse(JSON.stringify(l.geojson)),
+    }));
+    state._undoStack.push(cur);
+  } catch(e) {}
+  const snap = state._redoStack.pop();
+  _applyHistorySnapshot(snap);
+  toast('Redo', 'info');
+  _updateUndoButtons();
+}
+
+function _applyHistorySnapshot(snap) {
+  if (!snap) return;
+  // Remove all current map layers
+  state.layers.forEach((l, i) => {
+    try { _removeMapLayers(_layerMapId(i)); } catch(_) {}
+  });
+  state.layers = [];
+  state.activeLayerIndex = -1;
+  state.selectedFeatureIndex = -1;
+  state.selectedFeatureIndices = new Set();
+
+  // Rebuild layers from snapshot
+  snap.forEach((s, i) => {
+    if (s.isTile || !s.geojson) return; // skip tile/service layers
+    const layer = {
+      name: s.name, color: s.color, visible: s.visible,
+      sourceCRS: s.sourceCRS || 'EPSG:4326',
+      format: s.format || 'GeoJSON', fields: s.fields || {},
+      geomType: s.geomType, labelField: s.labelField, labelVisible: s.labelVisible,
+      layerOpacity: s.layerOpacity, symbology: s.symbology,
+      classifyConfig: s.classifyConfig,
+      geojson: s.geojson,
+      mapId: null, mapSourceId: null, mapLayerIds: [],
+      selectedIndices: new Set(),
+    };
+    state.layers.push(layer);
+  });
+
+  // Re-add all to map
+  state.layers.forEach((layer, i) => {
+    layer.mapId = _layerMapId(i);
+    _renderMapLayer(layer, i);
+  });
+
+  if (state.layers.length) {
+    state.activeLayerIndex = 0;
+    setActiveLayer(0);
+  } else {
+    updateLayerList();
+    clearStats();
+  }
+  _updateEmptyState();
+}
+
+function _updateUndoButtons() {
+  const undoBtn = document.getElementById('undo-map-btn');
+  const redoBtn = document.getElementById('redo-map-btn');
+  if (undoBtn) undoBtn.disabled = !state._undoStack.length;
+  if (redoBtn) redoBtn.disabled = !state._redoStack.length;
 }
 

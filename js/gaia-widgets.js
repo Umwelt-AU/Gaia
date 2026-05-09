@@ -490,6 +490,130 @@ function toggleWidgetPanel() {
   else openWidgetPanel();
 }
 
+// ══════════════════════════════════════════════════════════════════════════
+// ── BOX SELECT ────────────────────────────────────────────────────────────
+// Drag a rectangle on the map to select all features whose bounding box
+// intersects the selection area. Applies to the active vector layer.
+// ══════════════════════════════════════════════════════════════════════════
+let _boxSelectActive = false;
+let _boxStart = null; // {x, y} in map-div coordinates
+
+function toggleBoxSelect() {
+  _boxSelectActive = !_boxSelectActive;
+  const btn = document.getElementById('box-select-map-btn');
+  if (btn) btn.classList.toggle('active', _boxSelectActive);
+  const mapEl = document.getElementById('map');
+  if (!mapEl) return;
+
+  if (_boxSelectActive) {
+    // Disable map drag while box-select is on
+    state.map.dragPan.disable();
+    mapEl.style.cursor = 'crosshair';
+    mapEl.addEventListener('mousedown', _boxSelectMouseDown);
+    toast('Box Select active — drag on the map to select features', 'info');
+  } else {
+    state.map.dragPan.enable();
+    mapEl.style.cursor = '';
+    mapEl.removeEventListener('mousedown', _boxSelectMouseDown);
+    _boxSelectCleanup();
+  }
+}
+
+function _boxSelectMouseDown(e) {
+  if (e.button !== 0) return;
+  const mapEl = document.getElementById('map');
+  const rect  = mapEl.getBoundingClientRect();
+  _boxStart = { x: e.clientX - rect.left, y: e.clientY - rect.top };
+
+  // Create rubber-band div if needed
+  let band = document.getElementById('box-select-rect');
+  if (!band) {
+    band = document.createElement('div');
+    band.id = 'box-select-rect';
+    mapEl.appendChild(band);
+  }
+  band.style.left   = _boxStart.x + 'px';
+  band.style.top    = _boxStart.y + 'px';
+  band.style.width  = '0px';
+  band.style.height = '0px';
+  band.style.display = 'block';
+
+  document.addEventListener('mousemove', _boxSelectMouseMove);
+  document.addEventListener('mouseup',   _boxSelectMouseUp, { once: true });
+  e.stopPropagation();
+  e.preventDefault();
+}
+
+function _boxSelectMouseMove(e) {
+  if (!_boxStart) return;
+  const mapEl = document.getElementById('map');
+  const rect  = mapEl.getBoundingClientRect();
+  const curX  = e.clientX - rect.left;
+  const curY  = e.clientY - rect.top;
+  const band  = document.getElementById('box-select-rect');
+  if (!band) return;
+  const left   = Math.min(_boxStart.x, curX);
+  const top    = Math.min(_boxStart.y, curY);
+  const width  = Math.abs(curX - _boxStart.x);
+  const height = Math.abs(curY - _boxStart.y);
+  band.style.left   = left   + 'px';
+  band.style.top    = top    + 'px';
+  band.style.width  = width  + 'px';
+  band.style.height = height + 'px';
+}
+
+function _boxSelectMouseUp(e) {
+  document.removeEventListener('mousemove', _boxSelectMouseMove);
+  if (!_boxStart || !state.map) { _boxSelectCleanup(); return; }
+
+  const mapEl  = document.getElementById('map');
+  const rect   = mapEl.getBoundingClientRect();
+  const endX   = e.clientX - rect.left;
+  const endY   = e.clientY - rect.top;
+
+  // Convert pixel corners to LngLat
+  const sw = state.map.unproject([Math.min(_boxStart.x, endX), Math.max(_boxStart.y, endY)]);
+  const ne = state.map.unproject([Math.max(_boxStart.x, endX), Math.min(_boxStart.y, endY)]);
+  const bW = sw.lng, bS = sw.lat, bE = ne.lng, bN = ne.lat;
+
+  // Select features in active layer whose bbox overlaps the drawn rectangle
+  const layer = state.layers[state.activeLayerIndex];
+  if (layer && !layer.isTile) {
+    const feats = layer.geojson.features || [];
+    let count = 0;
+    feats.forEach((f, i) => {
+      if (!f.geometry) return;
+      const bb = _geomBBox(f.geometry);
+      if (!bb) return;
+      const [fMinX, fMinY, fMaxX, fMaxY] = bb;
+      if (fMaxX >= bW && fMinX <= bE && fMaxY >= bS && fMinY <= bN) {
+        state.selectedFeatureIndices.add(i);
+        count++;
+      }
+    });
+    updateSelectionCount();
+    refreshMapSelection(state.activeLayerIndex);
+    renderTable();
+    if (count) toast(`Selected ${count} feature${count !== 1 ? 's' : ''} in "${layer.name}"`, 'success');
+  }
+
+  _boxSelectCleanup();
+  // Auto-exit box-select mode after one drag
+  _boxSelectActive = false;
+  state.map.dragPan.enable();
+  if (mapEl) mapEl.style.cursor = '';
+  mapEl.removeEventListener('mousedown', _boxSelectMouseDown);
+  const btn = document.getElementById('box-select-map-btn');
+  if (btn) btn.classList.remove('active');
+  _boxStart = null;
+}
+
+function _boxSelectCleanup() {
+  const band = document.getElementById('box-select-rect');
+  if (band) band.style.display = 'none';
+  _boxStart = null;
+}
+
 // ── LEGEND MAP BUTTON ──
 function toggleMapLegend() {
   const panel = document.getElementById('legend-float');

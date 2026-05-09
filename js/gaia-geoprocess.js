@@ -961,12 +961,396 @@ async function runGeoBoundingGeometry() {
   }
 }
 
+// ── GP CLIP ──────────────────────────────────────────────────────────────
+// Clips features in Layer A to the boundary of polygon features in Layer B.
+// Points   → kept if they fall inside any mask polygon
+// Lines    → segments inside the mask are retained
+// Polygons → geometry is intersected with the mask using Sutherland-Hodgman
+async function runGeoClip() {
+  const aEl    = document.getElementById('gp-clip-a');
+  const bEl    = document.getElementById('gp-clip-b');
+  const nameEl = document.getElementById('gp-clip-name');
+  const resEl  = document.getElementById('gp-clip-result');
+  const btn    = document.querySelector('#gp-clip-panel button[onclick="runGeoClip()"]');
+  if (!aEl || !bEl) return;
+  const aIdx = parseInt(aEl.value), bIdx = parseInt(bEl.value);
+  if (isNaN(aIdx) || isNaN(bIdx)) { resEl.style.display='block'; resEl.textContent='Select two different layers.'; return; }
+  if (aIdx === bIdx)               { resEl.style.display='block'; resEl.textContent='Layer A and Layer B must be different.'; return; }
+
+  const maskLayer = state.layers[bIdx];
+  if (!maskLayer) return;
+  // Collect all mask rings from Layer B
+  const maskRings = [];
+  (maskLayer.geojson.features || []).forEach(f => {
+    const g = f.geometry; if (!g) return;
+    if (g.type === 'Polygon')      g.coordinates.forEach(r => maskRings.push(r));
+    else if (g.type === 'MultiPolygon') g.coordinates.forEach(p => p.forEach(r => maskRings.push(r)));
+  });
+  if (!maskRings.length) { resEl.style.display='block'; resEl.textContent='Layer B has no polygon geometry to use as a clip mask.'; return; }
+
+  _gpBusy(btn, true);
+  resEl.style.display = 'none';
+
+  // Run clip synchronously (fast enough for typical datasets)
+  try {
+    const inFeats  = _geoFeatures(aIdx);
+    const outFeats = [];
+
+    inFeats.forEach(feat => {
+      const g = feat.geometry; if (!g) return;
+      const clipped = _clipGeomToMask(g, maskRings);
+      if (clipped) outFeats.push({ type: 'Feature', geometry: clipped, properties: { ...feat.properties } });
+    });
+
+    if (!outFeats.length) { resEl.style.display='block'; resEl.textContent='No features remain after clipping.'; return; }
+    const name = (nameEl && nameEl.value.trim()) || 'Clip';
+    addLayer({ type: 'FeatureCollection', features: outFeats }, name, 'EPSG:4326', 'Geoprocess');
+    resEl.style.display='block'; resEl.textContent=`✔ Created "${name}" (${outFeats.length} feature${outFeats.length!==1?'s':''})`;
+    updateLayerList(); updateExportLayerList(); updateSBLLayerList(); updateDQALayerList();
+  } catch(e) {
+    resEl.style.display='block'; resEl.textContent='Error: ' + e.message;
+  } finally {
+    _gpBusy(btn, false);
+  }
+}
+
+// Clip a GeoJSON geometry against an array of mask polygon rings.
+// Returns a (possibly simplified) GeoJSON geometry or null if nothing remains.
+function _clipGeomToMask(geom, maskRings) {
+  const t = geom.type;
+
+  if (t === 'Point') {
+    return maskRings.some(r => _pointInPolygon(geom.coordinates, r)) ? geom : null;
+  }
+
+  if (t === 'MultiPoint') {
+    const kept = geom.coordinates.filter(c => maskRings.some(r => _pointInPolygon(c, r)));
+    if (!kept.length) return null;
+    return kept.length === 1 ? { type: 'Point', coordinates: kept[0] }
+                             : { type: 'MultiPoint', coordinates: kept };
+  }
+
+  if (t === 'LineString') {
+    const segs = _clipLineToMask(geom.coordinates, maskRings);
+    if (!segs.length) return null;
+    return segs.length === 1 ? { type: 'LineString', coordinates: segs[0] }
+                             : { type: 'MultiLineString', coordinates: segs };
+  }
+
+  if (t === 'MultiLineString') {
+    const allSegs = geom.coordinates.flatMap(line => _clipLineToMask(line, maskRings));
+    if (!allSegs.length) return null;
+    return { type: 'MultiLineString', coordinates: allSegs };
+  }
+
+  if (t === 'Polygon') {
+    const rings = _clipPolygonToMask(geom.coordinates, maskRings);
+    if (!rings) return null;
+    return { type: 'Polygon', coordinates: rings };
+  }
+
+  if (t === 'MultiPolygon') {
+    const polys = geom.coordinates
+      .map(polyRings => _clipPolygonToMask(polyRings, maskRings))
+      .filter(Boolean);
+    if (!polys.length) return null;
+    return polys.length === 1 ? { type: 'Polygon', coordinates: polys[0] }
+                              : { type: 'MultiPolygon', coordinates: polys };
+  }
+
+  return null;
+}
+
+// Clip a line (array of [x,y]) against mask rings.
+// Returns array of line segments that fall inside.
+function _clipLineToMask(coords, maskRings) {
+  const result = [];
+  for (let i = 0; i < coords.length - 1; i++) {
+    const a = coords[i], b = coords[i + 1];
+    // For each segment, find entry/exit points across all mask rings
+    // Simplified: keep the segment if midpoint is inside any mask ring
+    const mid = [(a[0] + b[0]) / 2, (a[1] + b[1]) / 2];
+    if (maskRings.some(r => _pointInPolygon(mid, r))) {
+      // Extend/merge with previous segment if contiguous
+      if (result.length && result[result.length - 1].slice(-1)[0] === a) {
+        result[result.length - 1].push(b);
+      } else {
+        result.push([a, b]);
+      }
+    }
+  }
+  return result;
+}
+
+// Clip a polygon (array of rings) against mask rings using Sutherland-Hodgman.
+// Returns clipped rings array or null.
+function _clipPolygonToMask(polyRings, maskRings) {
+  // Clip outer ring against each mask ring with Sutherland-Hodgman
+  let outer = polyRings[0];
+  // Find the mask ring that produces the largest result (best fit)
+  let bestOuter = null, bestArea = 0;
+  for (const maskRing of maskRings) {
+    const clipped = _suthHodgman(outer, maskRing);
+    if (clipped.length >= 4) {
+      const area = Math.abs(_ringArea(clipped));
+      if (area > bestArea) { bestArea = area; bestOuter = clipped; }
+    }
+  }
+  if (!bestOuter) return null;
+  return [bestOuter]; // holes are discarded for simplicity
+}
+
+// Sutherland-Hodgman polygon clipping algorithm
+function _suthHodgman(subject, clip) {
+  // Remove closing point from both rings for processing
+  const subj = (subject[subject.length-1][0]===subject[0][0] && subject[subject.length-1][1]===subject[0][1])
+    ? subject.slice(0, -1) : subject.slice();
+  const cl   = (clip[clip.length-1][0]===clip[0][0] && clip[clip.length-1][1]===clip[0][1])
+    ? clip.slice(0, -1) : clip.slice();
+
+  let output = subj.slice();
+  const n = cl.length;
+
+  for (let i = 0; i < n; i++) {
+    if (!output.length) return [];
+    const input = output;
+    output = [];
+    const edgeA = cl[i];
+    const edgeB = cl[(i + 1) % n];
+
+    for (let j = 0; j < input.length; j++) {
+      const curr = input[j];
+      const prev = input[(j + input.length - 1) % input.length];
+      const currIn = _shInside(curr, edgeA, edgeB);
+      const prevIn = _shInside(prev, edgeA, edgeB);
+      if (currIn) {
+        if (!prevIn) {
+          const p = _shIntersect(prev, curr, edgeA, edgeB);
+          if (p) output.push(p);
+        }
+        output.push(curr);
+      } else if (prevIn) {
+        const p = _shIntersect(prev, curr, edgeA, edgeB);
+        if (p) output.push(p);
+      }
+    }
+  }
+  if (output.length < 3) return [];
+  output.push(output[0]); // close ring
+  return output;
+}
+
+function _shInside(pt, a, b) {
+  return (b[0] - a[0]) * (pt[1] - a[1]) - (b[1] - a[1]) * (pt[0] - a[0]) >= 0;
+}
+
+function _shIntersect(p1, p2, p3, p4) {
+  const d1 = [p2[0]-p1[0], p2[1]-p1[1]];
+  const d2 = [p4[0]-p3[0], p4[1]-p3[1]];
+  const cross = d1[0]*d2[1] - d1[1]*d2[0];
+  if (Math.abs(cross) < 1e-14) return null;
+  const t = ((p3[0]-p1[0])*d2[1] - (p3[1]-p1[1])*d2[0]) / cross;
+  return [p1[0] + t*d1[0], p1[1] + t*d1[1]];
+}
+
+function _ringArea(ring) {
+  let area = 0;
+  for (let i = 0; i < ring.length - 1; i++) {
+    area += ring[i][0] * ring[i+1][1] - ring[i+1][0] * ring[i][1];
+  }
+  return area / 2;
+}
+
+// ── GP SPLIT ─────────────────────────────────────────────────────────────
+// Splits polygon/line features in Layer A using line features in Layer B.
+// Each feature in A is split wherever a split line (from B) crosses it,
+// producing two (or more) output features. Unsplit features are passed through.
+async function runGeoSplit() {
+  const aIdx  = parseInt(document.getElementById('gp-split-a').value);
+  const bIdx  = parseInt(document.getElementById('gp-split-b').value);
+  const nameEl = document.getElementById('gp-split-name');
+  const resEl  = document.getElementById('gp-split-result');
+  const btn    = document.querySelector('#gp-split-panel button[onclick="runGeoSplit()"]');
+
+  if (isNaN(aIdx) || isNaN(bIdx)) { resEl.textContent = '⚠ Select both layers.'; return; }
+  if (aIdx === bIdx) { resEl.textContent = '⚠ Layers must be different.'; return; }
+
+  const layerA = state.layers[aIdx];
+  const layerB = state.layers[bIdx];
+  if (!layerA || !layerB) return;
+
+  // Collect all split line segments from Layer B
+  const splitLines = [];
+  (layerB.geojson.features || []).forEach(f => {
+    if (!f.geometry) return;
+    const t = f.geometry.type;
+    if (t === 'LineString') splitLines.push(f.geometry.coordinates);
+    else if (t === 'MultiLineString') f.geometry.coordinates.forEach(c => splitLines.push(c));
+  });
+  if (!splitLines.length) { resEl.textContent = '⚠ Layer B must contain line features.'; return; }
+
+  _gpBusy(btn, true); resEl.textContent = '';
+  try {
+    const outFeatures = [];
+    (layerA.geojson.features || []).forEach(f => {
+      if (!f.geometry) return;
+      const t = f.geometry.type;
+      if (t === 'Polygon' || t === 'MultiPolygon') {
+        const rings = t === 'Polygon' ? [f.geometry.coordinates[0]]
+          : f.geometry.coordinates.map(r => r[0]);
+        let produced = rings;
+        splitLines.forEach(splitLine => {
+          const next = [];
+          produced.forEach(ring => {
+            const halves = _splitRingByLine(ring, splitLine);
+            next.push(...halves);
+          });
+          if (next.length > produced.length) produced = next;
+        });
+        produced.forEach(ring => {
+          if (ring.length >= 4) {
+            outFeatures.push({ type: 'Feature', geometry: { type: 'Polygon', coordinates: [ring] },
+              properties: Object.assign({}, f.properties) });
+          }
+        });
+      } else if (t === 'LineString' || t === 'MultiLineString') {
+        const lines = t === 'LineString' ? [f.geometry.coordinates]
+          : f.geometry.coordinates;
+        let produced = lines;
+        splitLines.forEach(splitLine => {
+          const next = [];
+          produced.forEach(line => {
+            const segs = _splitLineByLine(line, splitLine);
+            next.push(...segs);
+          });
+          if (next.length > produced.length) produced = next;
+        });
+        produced.forEach(seg => {
+          if (seg.length >= 2) {
+            const geomType = t === 'LineString' ? 'LineString' : 'LineString';
+            outFeatures.push({ type: 'Feature', geometry: { type: geomType, coordinates: seg },
+              properties: Object.assign({}, f.properties) });
+          }
+        });
+      } else {
+        outFeatures.push(JSON.parse(JSON.stringify(f)));
+      }
+    });
+
+    const outName = (nameEl.value.trim() || (layerA.name + ' Split'));
+    const outGJ = { type: 'FeatureCollection', features: outFeatures };
+    addLayer(outGJ, outName, 'EPSG:4326', 'Geoprocess');
+    resEl.textContent = `✓ ${outFeatures.length} features created.`;
+    resEl.style.color = 'var(--green)';
+    toast(`Split → "${outName}" (${outFeatures.length} features)`, 'success');
+  } catch(err) {
+    resEl.textContent = '✗ ' + err.message;
+    resEl.style.color = 'var(--red)';
+  } finally {
+    _gpBusy(btn, false);
+  }
+}
+
+// Split a polygon ring by a polyline. Returns array of rings (1 if no split, 2 if split).
+function _splitRingByLine(ring, splitLine) {
+  // Find all intersection points of split line with ring boundary
+  // and their positions along the ring
+  const intersections = [];
+  const rLen = ring.length - 1; // ring is closed so last == first
+
+  for (let si = 0; si < splitLine.length - 1; si++) {
+    const sA = splitLine[si], sB = splitLine[si + 1];
+    for (let ri = 0; ri < rLen; ri++) {
+      const rA = ring[ri], rB = ring[(ri + 1) % rLen];
+      const pt = _segSegIntersect(sA, sB, rA, rB);
+      if (pt) {
+        // Position along ring (ring index + fraction)
+        const dx = rB[0] - rA[0], dy = rB[1] - rA[1];
+        const len2 = dx*dx + dy*dy;
+        const t = len2 > 0 ? ((pt[0]-rA[0])*dx + (pt[1]-rA[1])*dy) / len2 : 0;
+        intersections.push({ pt, ringPos: ri + Math.max(0, Math.min(1, t)) });
+      }
+    }
+  }
+
+  if (intersections.length < 2) return [ring]; // no split
+
+  // Sort by ring position
+  intersections.sort((a, b) => a.ringPos - b.ringPos);
+  const p0 = intersections[0], p1 = intersections[1];
+  const i0 = Math.floor(p0.ringPos), i1 = Math.floor(p1.ringPos);
+
+  // Build ring A: from p0 → (ring vertices i0+1 … i1) → p1 → p0
+  const ringA = [p0.pt];
+  for (let i = i0 + 1; i <= i1; i++) ringA.push(ring[i % rLen]);
+  ringA.push(p1.pt);
+  ringA.push(p0.pt); // close
+
+  // Build ring B: from p1 → (ring vertices i1+1 … i0 wrapping) → p0 → p1
+  const ringB = [p1.pt];
+  for (let i = i1 + 1; i <= i0 + rLen; i++) ringB.push(ring[i % rLen]);
+  ringB.push(p0.pt);
+  ringB.push(p1.pt); // close
+
+  return [ringA, ringB].filter(r => r.length >= 4);
+}
+
+// Split a line by another polyline. Returns array of line segments.
+function _splitLineByLine(line, splitLine) {
+  // Find all intersection points with their position along the target line
+  const cuts = [];
+  for (let si = 0; si < splitLine.length - 1; si++) {
+    const sA = splitLine[si], sB = splitLine[si + 1];
+    for (let li = 0; li < line.length - 1; li++) {
+      const lA = line[li], lB = line[li + 1];
+      const pt = _segSegIntersect(sA, sB, lA, lB);
+      if (pt) {
+        const dx = lB[0]-lA[0], dy = lB[1]-lA[1];
+        const len2 = dx*dx + dy*dy;
+        const t = len2 > 0 ? ((pt[0]-lA[0])*dx + (pt[1]-lA[1])*dy) / len2 : 0;
+        cuts.push({ pt, pos: li + Math.max(0, Math.min(1, t)) });
+      }
+    }
+  }
+  if (!cuts.length) return [line];
+  cuts.sort((a, b) => a.pos - b.pos);
+
+  const segments = [];
+  let prev = 0;
+  cuts.forEach(cut => {
+    const i = Math.floor(cut.pos);
+    const seg = line.slice(prev, i + 1);
+    seg.push(cut.pt);
+    if (seg.length >= 2) segments.push(seg);
+    prev = i + 1;
+  });
+  const last = [cuts[cuts.length-1].pt, ...line.slice(prev)];
+  if (last.length >= 2) segments.push(last);
+  return segments;
+}
+
+// Segment-segment intersection test. Returns intersection point or null.
+function _segSegIntersect(a, b, c, d) {
+  const r = [b[0]-a[0], b[1]-a[1]];
+  const s = [d[0]-c[0], d[1]-c[1]];
+  const denom = r[0]*s[1] - r[1]*s[0];
+  if (Math.abs(denom) < 1e-14) return null;
+  const t = ((c[0]-a[0])*s[1] - (c[1]-a[1])*s[0]) / denom;
+  const u = ((c[0]-a[0])*r[1] - (c[1]-a[1])*r[0]) / denom;
+  if (t >= 0 && t <= 1 && u >= 0 && u <= 1) {
+    return [a[0] + t*r[0], a[1] + t*r[1]];
+  }
+  return null;
+}
+
 // Refresh all geoprocessing layer selects when layers change
 function updateGeoprocessLayerSelects() {
   const ids = [
     'gp-buffer-src','gp-intersect-a','gp-intersect-b',
+    'gp-clip-a','gp-clip-b',
     'gp-union-a','gp-union-b',
-    'gp-dissolve-src','gp-simplify-src','gp-centroid-src','gp-hull-src'
+    'gp-dissolve-src','gp-simplify-src','gp-centroid-src','gp-hull-src',
+    'gp-split-a','gp-split-b','gp-topo-src'
   ];
   const opts = _gpLayerOptions(true);
   ids.forEach(id => {
@@ -974,6 +1358,136 @@ function updateGeoprocessLayerSelects() {
     if (el) el.innerHTML = opts;
   });
   //_gpPopulateDissolveFields();
+}
+
+// ── TOPOLOGY / GEOMETRY VALIDATION ───────────────────────────────────────
+async function runTopoCheck() {
+  const srcIdx = parseInt(document.getElementById('gp-topo-src').value);
+  const resEl  = document.getElementById('gp-topo-result');
+  const btn    = document.querySelector('#gp-topo-panel button[onclick="runTopoCheck()"]');
+
+  if (isNaN(srcIdx)) { resEl.textContent = '⚠ Select a layer.'; return; }
+  const layer = state.layers[srcIdx];
+  if (!layer) return;
+
+  const chkSelf  = document.getElementById('topo-chk-selfintersect').checked;
+  const chkUnclsd= document.getElementById('topo-chk-unclosed').checked;
+  const chkDup   = document.getElementById('topo-chk-dupverts').checked;
+  const chkEmpty = document.getElementById('topo-chk-empty').checked;
+  const chkSpike = document.getElementById('topo-chk-spike').checked;
+
+  _gpBusy(btn, true); resEl.textContent = '';
+
+  const issues = [];
+
+  (layer.geojson.features || []).forEach((f, fi) => {
+    const props = { _fi: fi, feature_id: f.properties?._fi ?? fi };
+
+    if (!f.geometry || !f.geometry.type) {
+      if (chkEmpty) issues.push({ type: 'Feature', geometry: null,
+        properties: { ...props, issue: 'Empty geometry', severity: 'error' } });
+      return;
+    }
+
+    const t = f.geometry.type;
+    const coords = f.geometry.coordinates;
+
+    // Helper: iterate all rings
+    function eachRing(callback) {
+      if (t === 'Polygon') coords.forEach((r, ri) => callback(r, ri));
+      else if (t === 'MultiPolygon') coords.forEach((poly, pi) =>
+        poly.forEach((r, ri) => callback(r, `${pi}.${ri}`)));
+    }
+    // Helper: iterate all linestrings
+    function eachLine(callback) {
+      if (t === 'LineString') callback(coords, 0);
+      else if (t === 'MultiLineString') coords.forEach((l, li) => callback(l, li));
+      else if (t === 'Polygon') coords.forEach((r, ri) => callback(r, ri));
+      else if (t === 'MultiPolygon') coords.forEach((poly, pi) =>
+        poly.forEach((r, ri) => callback(r, `${pi}.${ri}`)));
+    }
+
+    // --- Check: unclosed rings ---
+    if (chkUnclsd && (t === 'Polygon' || t === 'MultiPolygon')) {
+      eachRing((ring, ri) => {
+        if (ring.length < 2) return;
+        const first = ring[0], last = ring[ring.length - 1];
+        if (Math.abs(first[0] - last[0]) > 1e-9 || Math.abs(first[1] - last[1]) > 1e-9) {
+          issues.push({ type: 'Feature', geometry: { type: 'Point', coordinates: ring[0] },
+            properties: { ...props, issue: `Unclosed ring (ring ${ri})`, severity: 'error' } });
+        }
+      });
+    }
+
+    // --- Check: duplicate consecutive vertices ---
+    if (chkDup) {
+      eachLine((line, li) => {
+        for (let i = 0; i < line.length - 1; i++) {
+          if (Math.abs(line[i][0] - line[i+1][0]) < 1e-10 &&
+              Math.abs(line[i][1] - line[i+1][1]) < 1e-10) {
+            issues.push({ type: 'Feature', geometry: { type: 'Point', coordinates: line[i] },
+              properties: { ...props, issue: `Duplicate vertex at index ${i} (line ${li})`, severity: 'warning' } });
+            break; // one per line/ring is enough
+          }
+        }
+      });
+    }
+
+    // --- Check: spike vertices (very acute angle < 1°) ---
+    if (chkSpike) {
+      eachLine((line, li) => {
+        for (let i = 1; i < line.length - 1; i++) {
+          const a = line[i-1], b = line[i], c = line[i+1];
+          const v1 = [a[0]-b[0], a[1]-b[1]], v2 = [c[0]-b[0], c[1]-b[1]];
+          const d1 = Math.sqrt(v1[0]*v1[0]+v1[1]*v1[1]);
+          const d2 = Math.sqrt(v2[0]*v2[0]+v2[1]*v2[1]);
+          if (d1 < 1e-12 || d2 < 1e-12) continue;
+          const cos = (v1[0]*v2[0]+v1[1]*v2[1]) / (d1*d2);
+          const angle = Math.acos(Math.max(-1, Math.min(1, cos))) * 180 / Math.PI;
+          if (angle < 1) {
+            issues.push({ type: 'Feature', geometry: { type: 'Point', coordinates: b },
+              properties: { ...props, issue: `Spike vertex at index ${i} (angle ${angle.toFixed(2)}°)`, severity: 'warning' } });
+          }
+        }
+      });
+    }
+
+    // --- Check: self-intersecting rings (O(n²) segment test) ---
+    if (chkSelf && (t === 'Polygon' || t === 'MultiPolygon')) {
+      eachRing((ring, ri) => {
+        const n = ring.length - 1; // last == first for closed ring
+        outer: for (let i = 0; i < n - 2; i++) {
+          for (let j = i + 2; j < n; j++) {
+            if (i === 0 && j === n - 1) continue; // skip adjacent
+            const pt = _segSegIntersect(ring[i], ring[i+1], ring[j], ring[j+1]);
+            if (pt) {
+              issues.push({ type: 'Feature', geometry: { type: 'Point', coordinates: pt },
+                properties: { ...props, issue: `Self-intersection in ring ${ri} (seg ${i} × seg ${j})`, severity: 'error' } });
+              break outer; // one per ring
+            }
+          }
+        }
+      });
+    }
+  });
+
+  _gpBusy(btn, false);
+
+  if (!issues.length) {
+    resEl.textContent = `✓ No issues found in ${layer.geojson.features.length} features.`;
+    resEl.style.color = 'var(--green)';
+    toast('Topology check passed — no issues found', 'success');
+    return;
+  }
+
+  const outGJ = { type: 'FeatureCollection', features: issues };
+  addLayer(outGJ, layer.name + ' — Issues', 'EPSG:4326', 'Topology');
+  const errors   = issues.filter(i => i.properties.severity === 'error').length;
+  const warnings = issues.filter(i => i.properties.severity === 'warning').length;
+  resEl.innerHTML = `<span style="color:var(--red)">✗ ${errors} error(s)</span>` +
+    (warnings ? ` <span style="color:var(--orange)">+ ${warnings} warning(s)</span>` : '') +
+    ` — see new issue layer`;
+  toast(`Topology: ${errors} error(s), ${warnings} warning(s)`, errors ? 'error' : 'info');
 }
 
 // ── END GEOPROCESSING ──────────────────────────────────────────────────────

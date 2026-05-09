@@ -113,8 +113,11 @@ function updateCreateLayerList() {
   el.innerHTML = editLayers.map(l => {
     const idx = state.layers.indexOf(l);
     const active = idx === createState.activeLayerIdx;
+    const icon = (typeof layerGeomIcon === 'function')
+      ? `<div class="create-layer-icon" style="width:20px;height:20px;flex-shrink:0;">${layerGeomIcon(l)}</div>`
+      : `<div class="create-layer-dot" style="background:${l.color}"></div>`;
     return `<div class="create-layer-item ${active ? 'editing' : ''}" onclick="setCreateActiveLayer(${idx})">
-      <div class="create-layer-dot" style="background:${l.color}"></div>
+      ${icon}
       <div class="create-layer-info">
         <div class="create-layer-name">${l.name}</div>
         <div class="create-layer-meta">${l.editGeomType} · ${l.geojson.features.length} features</div>
@@ -139,9 +142,9 @@ function startDrawFeature() {
   document.getElementById('create-end-btn').style.display = 'block';
   document.getElementById('create-hint').style.display = 'block';
   const hints = {
-    Point: 'Click on the map to place a point.',
-    LineString: 'Click to add vertices. Double-click or ⏹ to finish.',
-    Polygon: 'Click to add vertices. Double-click or ⏹ to close polygon.'
+    Point: 'Click to place points. Press ⏹ when done.',
+    LineString: 'Click to add vertices. Double-click to finish line, then draw next. ⏹ to exit.',
+    Polygon: 'Click to add vertices. Double-click to close polygon, then draw next. ⏹ to exit.'
   };
   document.getElementById('create-hint').textContent = hints[createState.drawMode] || '';
 }
@@ -177,11 +180,15 @@ function stopCreateDraw() {
 
 function handleCreateClick(e) {
   const mode = createState.drawMode;
-  const ll = _evtLatLng(e);
+  const raw  = _evtLatLng(e);
+  const ll   = _snapToVertex(raw);
+  _setSnapIndicator(null);
   if (mode === 'Point') {
     createState.drawPoints = [ll];
     finaliseFeature();
-    stopCreateDraw();
+    // Stay in Point draw mode so the user can place multiple points
+    // without having to re-click "Add Point" each time.
+    createState.drawPoints = [];
     return;
   }
   createState.drawPoints.push(ll);
@@ -189,10 +196,55 @@ function handleCreateClick(e) {
   _updateVertexCount();
 }
 
+// ── SNAP RADIUS (screen pixels) ───────────────────────────────────────────
+const SNAP_PX = 14;
+
+// Returns a snapped {lng, lat} if a nearby vertex is found, else the raw point
+function _snapToVertex(rawLngLat) {
+  if (!state.map) return rawLngLat;
+  const rawPx = state.map.project([rawLngLat.lng, rawLngLat.lat]);
+  let best = null, bestDist = SNAP_PX;
+
+  state.layers.forEach(layer => {
+    if (!layer || layer.isTile) return;
+    (layer.geojson.features || []).forEach(f => {
+      if (!f.geometry) return;
+      const coords = [];
+      function collect(c) {
+        if (!Array.isArray(c)) return;
+        if (typeof c[0] === 'number') coords.push(c);
+        else c.forEach(collect);
+      }
+      collect(f.geometry.coordinates);
+      coords.forEach(([lng, lat]) => {
+        const pt  = state.map.project([lng, lat]);
+        const dx  = pt.x - rawPx.x, dy = pt.y - rawPx.y;
+        const d   = Math.sqrt(dx * dx + dy * dy);
+        if (d < bestDist) { bestDist = d; best = { lng, lat }; }
+      });
+    });
+  });
+  return best || rawLngLat;
+}
+
+// Show/hide the snap indicator dot on the draw preview layer
+function _setSnapIndicator(lngLat) {
+  const snapEl = document.getElementById('snap-indicator');
+  if (!snapEl || !state.map) return;
+  if (!lngLat) { snapEl.style.display = 'none'; return; }
+  const px = state.map.project([lngLat.lng, lngLat.lat]);
+  snapEl.style.display = 'block';
+  snapEl.style.left = (px.x - 8) + 'px';
+  snapEl.style.top  = (px.y - 8) + 'px';
+}
+
 function handleCreateMouseMove(e) {
   if (!createState.drawPoints.length) return;
-  const ll = _evtLatLng(e);
-  const pts = [...createState.drawPoints, ll];
+  const raw  = _evtLatLng(e);
+  const snapped = _snapToVertex(raw);
+  const didSnap = snapped !== raw;
+  _setSnapIndicator(didSnap ? snapped : null);
+  const pts = [...createState.drawPoints, snapped];
   if (createState.drawMode === 'LineString') {
     const f = _drawLineFeature(pts, '#e3b341'); _setDrawPreview(f ? [f] : []);
   } else {
@@ -200,11 +252,18 @@ function handleCreateMouseMove(e) {
   }
 }
 
+
 function handleCreateDblClick(e) {
-  if (createState.drawPoints.length > 0) createState.drawPoints.pop();
+  if (createState.drawPoints.length > 0) createState.drawPoints.pop(); // remove the extra point from dblclick
   if (createState.drawMode === 'LineString' && createState.drawPoints.length >= 2) finaliseFeature();
   else if (createState.drawMode === 'Polygon' && createState.drawPoints.length >= 3) finaliseFeature();
-  stopCreateDraw();
+  // Restart draw mode immediately so the user can draw the next feature
+  // without having to re-click "Draw Line" / "Draw Polygon".
+  createState.drawPoints = [];
+  _clearDraw();
+  // Update vertex count display
+  const vc = document.getElementById('create-vertex-count');
+  if (vc) vc.textContent = '';
 }
 
 function redrawCreatePreview() {

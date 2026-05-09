@@ -479,12 +479,38 @@ function mapCtxAddPoint() {
 
 
 
-// ── LOCATION SEARCH (Nominatim) ───────────────────────────────────────
+// ── LOCATION SEARCH (Nominatim + direct coordinate input) ─────────────
+// Accepts: "lat, lng"  |  "lng, lat"  |  "-31.95 115.86"  |  place names
 function searchLocation() {
   const input = document.getElementById('location-search-input');
   const q = (input ? input.value : '').trim();
   if (!q) return;
   const resultsDiv = document.getElementById('location-search-results');
+
+  // ── Coordinate shortcut ──────────────────────────────────────────────
+  // Match two decimal numbers separated by comma or whitespace
+  const coordMatch = q.match(/^([+-]?\d{1,3}(?:\.\d+)?)[,\s]+([+-]?\d{1,3}(?:\.\d+)?)$/);
+  if (coordMatch) {
+    const a = parseFloat(coordMatch[1]), b = parseFloat(coordMatch[2]);
+    // Heuristic: if first number is in [-90,90] and second in [-180,180] → lat, lng
+    // Otherwise try the reverse
+    let lat, lng;
+    if (a >= -90 && a <= 90 && b >= -180 && b <= 180) {
+      lat = a; lng = b;
+    } else if (b >= -90 && b <= 90 && a >= -180 && a <= 180) {
+      lat = b; lng = a;
+    }
+    if (lat !== undefined) {
+      if (resultsDiv) resultsDiv.style.display = 'none';
+      if (input) input.value = `${lat.toFixed(6)}, ${lng.toFixed(6)}`;
+      if (state.map) state.map.flyTo({ center: [lng, lat], zoom: 15, animate: true });
+      // Drop a temporary marker highlight
+      _locationPulseMarker(lng, lat);
+      return;
+    }
+  }
+
+  // ── Nominatim address search ─────────────────────────────────────────
   if (resultsDiv) {
     resultsDiv.innerHTML = '<div style="padding:8px 12px;font-family:var(--mono);font-size:10px;color:var(--text3);">Searching…</div>';
     resultsDiv.style.display = 'block';
@@ -518,9 +544,38 @@ function selectLocationResult(lat, lon, displayName) {
   const input = document.getElementById('location-search-input');
   if (resultsDiv) resultsDiv.style.display = 'none';
   if (input) input.value = displayName;
+  const lng2 = parseFloat(lon), lat2 = parseFloat(lat);
   if (state.map) {
-    state.map.flyTo({ center: [parseFloat(lon), parseFloat(lat)], zoom: 15, animate: true });
+    state.map.flyTo({ center: [lng2, lat2], zoom: 15, animate: true });
+    _locationPulseMarker(lng2, lat2);
   }
+}
+
+// Drops a briefly-animated crosshair marker at a coordinate, auto-removes after 4 s
+let _pulseMarkerEl = null;
+let _pulseMarkerInst = null;
+function _locationPulseMarker(lng, lat) {
+  if (!state.map) return;
+  // Remove any existing marker
+  if (_pulseMarkerInst) { try { _pulseMarkerInst.remove(); } catch(_) {} }
+  if (_pulseMarkerEl)   { try { _pulseMarkerEl.remove(); }   catch(_) {} }
+
+  _pulseMarkerEl = document.createElement('div');
+  _pulseMarkerEl.style.cssText = [
+    'width:22px','height:22px','border-radius:50%',
+    'border:2.5px solid var(--accent)','background:rgba(46,139,139,0.18)',
+    'box-shadow:0 0 0 0 rgba(46,139,139,0.5)',
+    'animation:locationPulse 1s ease-out 3',
+    'pointer-events:none',
+  ].join(';');
+
+  _pulseMarkerInst = new maplibregl.Marker({ element: _pulseMarkerEl, anchor: 'center' })
+    .setLngLat([lng, lat])
+    .addTo(state.map);
+
+  setTimeout(() => {
+    if (_pulseMarkerInst) { try { _pulseMarkerInst.remove(); } catch(_) {} _pulseMarkerInst = null; }
+  }, 4000);
 }
 
 function clearLocationResults() {

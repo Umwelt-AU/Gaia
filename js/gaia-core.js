@@ -64,6 +64,9 @@ const state = {
   sortCol: null, sortDir: 1, filterText: '', showOnlySelected: false, columnOrder: null,
   exportFormat: 'geojson', displayCRS: 'EPSG:4326',
   map: null, basemapLayer: null, basemapOverlay: null,
+  // Global layer undo/redo history
+  _undoStack: [],  // array of JSON strings — each a snapshot of state.layers
+  _redoStack: [],  // same
 };
 
 // ── CRS DEFINITIONS ──

@@ -62,7 +62,23 @@ window.addEventListener('DOMContentLoaded', () => {
 
   // Add navigation controls
   state.map.addControl(new maplibregl.NavigationControl({ showCompass: true }), 'top-left');
-  state.map.addControl(new maplibregl.ScaleControl({ maxWidth: 100, unit: 'metric' }), 'bottom-right');
+  state.map.addControl(new maplibregl.ScaleControl({ maxWidth: 120, unit: 'metric' }), 'bottom-right');
+
+  // ── North arrow — rotates opposite to map bearing ──────────────────────
+  function _updateNorthArrow() {
+    const el = document.getElementById('north-arrow-svg');
+    if (!el) return;
+    const bearing = state.map.getBearing(); // degrees clockwise from north
+    el.style.transform = `rotate(${-bearing}deg)`;
+  }
+  state.map.on('rotate', _updateNorthArrow);
+  state.map.on('load',   _updateNorthArrow);
+
+  // Click to reset bearing to north
+  const _naEl = document.getElementById('north-arrow');
+  if (_naEl) _naEl.addEventListener('click', () => {
+    state.map.easeTo({ bearing: 0, duration: 300 });
+  });
 
 state.map.on('load', () => {
   // --- 1. Add MapTiler DEM source (terrain-rgb, compatible with Mapbox GL) ---
@@ -378,8 +394,10 @@ function _drawPointFeature(pt, color) {
     properties: { _color: color || '#39d353' } };
 }
 
-// Convert MapLibre event latlng object to a standard {lat, lng} object
+// Convert MapLibre event latlng object to a standard {lat, lng} object.
+// Returns pre-snapped coordinate if one was attached by the snap handler.
 function _evtLatLng(e) {
+  if (e._snappedLngLat) return e._snappedLngLat;
   const ll = e.lngLat || e.latlng;
   if (ll) return { lat: ll.lat, lng: ll.lng };
   return { lat: 0, lng: 0 };

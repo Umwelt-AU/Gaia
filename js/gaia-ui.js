@@ -126,6 +126,113 @@ function ctxRemoveLayer() {
   removeLayer(ctxLayerIdx);
 }
 
+// ── SELECT VISIBLE FEATURES ───────────────────────────────────────────────
+// Selects all features whose bounding box intersects the current map viewport.
+function selectVisibleFeatures() {
+  const layer = state.layers[state.activeLayerIndex];
+  if (!layer || layer.isTile) { toast('No active vector layer', 'error'); return; }
+  if (!state.map) return;
+
+  const bounds = state.map.getBounds();
+  const W = bounds.getWest(), S = bounds.getSouth(), E = bounds.getEast(), N = bounds.getNorth();
+
+  const feats = layer.geojson.features || [];
+  let count = 0;
+  feats.forEach((f, i) => {
+    if (!f.geometry) return;
+    const bb = _geomBBox(f.geometry);
+    if (!bb) return;
+    const [fMinX, fMinY, fMaxX, fMaxY] = bb;
+    // Check if feature bbox intersects map viewport bbox
+    if (fMaxX >= W && fMinX <= E && fMaxY >= S && fMinY <= N) {
+      state.selectedFeatureIndices.add(i);
+      count++;
+    }
+  });
+
+  updateSelectionCount();
+  refreshMapSelection(state.activeLayerIndex);
+  renderTable();
+  toast(`Selected ${count} visible feature${count !== 1 ? 's' : ''} in "${layer.name}"`, 'success');
+}
+
+function ctxSelectVisible() {
+  closeLayerCtxMenu();
+  // Switch to the right-clicked layer first
+  setActiveLayer(ctxLayerIdx);
+  selectVisibleFeatures();
+}
+
+// ── COPY SELECTED FEATURES TO ANOTHER LAYER ──────────────────────────────
+function copySelectedToLayer() {
+  const srcLayer = state.layers[state.activeLayerIndex];
+  if (!srcLayer || srcLayer.isTile) { toast('No active vector layer', 'error'); return; }
+  if (!state.selectedFeatureIndices.size) { toast('No features selected — select features first', 'info'); return; }
+
+  // Build options list excluding the source layer
+  const targets = state.layers
+    .map((l, i) => ({ l, i }))
+    .filter(({ l, i }) => l && !l.isTile && i !== state.activeLayerIndex);
+
+  if (!targets.length) { toast('No other layers to copy to — add a destination layer first', 'info'); return; }
+
+  // Show a small inline modal
+  const existing = document.getElementById('copy-to-layer-modal');
+  if (existing) existing.remove();
+
+  const opts = targets.map(({ l, i }) => `<option value="${i}">${escHtml(l.name)}</option>`).join('');
+  const modal = document.createElement('div');
+  modal.id = 'copy-to-layer-modal';
+  modal.style.cssText = 'position:fixed;z-index:9999;background:var(--bg2);border:1px solid var(--border);border-radius:8px;padding:14px 16px;box-shadow:var(--shadow-lg);min-width:240px;font-family:var(--mono);font-size:11px;color:var(--text);top:50%;left:50%;transform:translate(-50%,-50%);';
+  modal.innerHTML = `
+    <div style="font-weight:600;margin-bottom:10px;color:var(--text);">Copy to Layer</div>
+    <div style="font-size:9px;color:var(--text3);margin-bottom:6px;">${state.selectedFeatureIndices.size} feature${state.selectedFeatureIndices.size!==1?'s':''} from <b>${escHtml(srcLayer.name)}</b></div>
+    <select id="copy-to-layer-sel" style="width:100%;padding:4px 7px;font-size:10px;margin-bottom:10px;background:var(--bg3);border:1px solid var(--border);border-radius:4px;color:var(--text);">${opts}</select>
+    <div style="display:flex;gap:6px;justify-content:flex-end;">
+      <button class="btn btn-ghost btn-sm" onclick="document.getElementById('copy-to-layer-modal').remove()">Cancel</button>
+      <button class="btn btn-primary btn-sm" onclick="_doCopyToLayer()">Copy</button>
+    </div>`;
+  document.body.appendChild(modal);
+}
+
+function _doCopyToLayer() {
+  const sel = document.getElementById('copy-to-layer-sel');
+  const modal = document.getElementById('copy-to-layer-modal');
+  if (!sel) return;
+  const destIdx = parseInt(sel.value);
+  if (modal) modal.remove();
+
+  const srcLayer  = state.layers[state.activeLayerIndex];
+  const destLayer = state.layers[destIdx];
+  if (!srcLayer || !destLayer) return;
+
+  const srcFeats = srcLayer.geojson.features || [];
+  const copied   = [...state.selectedFeatureIndices]
+    .map(i => srcFeats[i])
+    .filter(Boolean)
+    .map(f => JSON.parse(JSON.stringify(f))); // deep clone
+
+  if (!copied.length) { toast('Nothing to copy', 'info'); return; }
+
+  destLayer.geojson.features.push(...copied);
+  // Merge any new field names
+  copied.forEach(f => {
+    Object.entries(f.properties || {}).forEach(([k, v]) => {
+      if (!(k in destLayer.fields)) destLayer.fields[k] = typeof v;
+    });
+  });
+
+  _rebuildMapLayer(destIdx);
+  updateLayerList(); updateExportLayerList(); renderTable();
+  toast(`Copied ${copied.length} feature${copied.length!==1?'s':''} → "${destLayer.name}"`, 'success');
+}
+
+function ctxCopySelectedToLayer() {
+  closeLayerCtxMenu();
+  setActiveLayer(ctxLayerIdx);
+  copySelectedToLayer();
+}
+
 function ctxExportData() {
   closeLayerCtxMenu();
   const layer = state.layers[ctxLayerIdx];
